@@ -33,7 +33,6 @@ struct priv {
     struct pl_dispatch *dp;
     struct pl_shader_obj *dither_state;
 
-    // API #1: A simple pair of input and output textures
     const struct pl_tex *tex_in[MAX_PLANES];
     const struct pl_tex *tex_out[MAX_PLANES];
 };

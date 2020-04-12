@@ -23,9 +23,9 @@
 
 typedef  struct {
     VSNodeRef *node;
-    VSNodeRef *stats_node;
     const VSVideoInfo *vi;
-    void * vf;
+    struct priv * vf;
+    struct pl_renderer *rr;
 } TMData;
 
 typedef struct {
@@ -48,6 +48,7 @@ void setup_plane_data_TM(const struct image *img,
                 .pixels = plane->data,
         };
 
+
         for (int c = 0; c < plane->fmt.num_comps; c++) {
             out[i].component_size[c] = plane->fmt.bitdepth;
             out[i].component_pad[c] = 0;
@@ -56,16 +57,21 @@ void setup_plane_data_TM(const struct image *img,
     }
 }
 
-bool do_plane_TM(struct priv *p, const struct pl_tex *dst, const struct pl_tex *src, void* data)
+bool do_plane_TM(struct priv *p, const struct pl_tex *dst, const struct pl_tex *src, void* data, int n)
 {
-    struct pl_shader *sh = pl_dispatch_begin(p->dp);
-    tm_params* d = (tm_params*) data;
-    pl_shader_sample_direct(sh, &(struct pl_sample_src) {.tex = src, });
-    const struct pl_color_map_params parameters = {};
-    struct pl_color_space src_color = { .primaries = PL_COLOR_PRIM_BT_2020, .transfer = PL_COLOR_TRC_PQ, .light = PL_COLOR_LIGHT_DISPLAY, .sig_peak = d->peak, .sig_avg = d->avg};
-    struct pl_color_space dst_color = {.primaries = PL_COLOR_PRIM_BT_709, .transfer = PL_COLOR_TRC_BT_1886, .light = PL_COLOR_LIGHT_DISPLAY};
-    pl_shader_color_map(sh, NULL, src_color, dst_color, NULL, false);
-    return pl_dispatch_finish(p->dp, &sh, dst, NULL, NULL);
+    TMData* d = (TMData*) data;
+    struct pl_plane plane = {.texture = src, .components = 4};
+    for (int i = 0; i < 4 ; ++i) {
+        plane.component_mapping[i] = i;
+    }
+    struct pl_color_repr crpr = {.bits = {.sample_depth = 16, .color_depth = 16, .bit_shift = 0}, .levels = PL_COLOR_LEVELS_PC, .alpha = PL_ALPHA_INDEPENDENT, .sys = PL_COLOR_SYSTEM_RGB};
+    struct pl_color_space csp = {.primaries = PL_COLOR_PRIM_BT_2020, .transfer = PL_COLOR_TRC_PQ, .light =  PL_COLOR_LIGHT_DISPLAY};
+    struct pl_color_space csp_out = {.primaries = PL_COLOR_PRIM_BT_709, .transfer = PL_COLOR_TRC_UNKNOWN, .light = PL_COLOR_LIGHT_DISPLAY};
+    struct pl_image img = {.signature = n, .num_planes = 1, .width = d->vi->width, .height = d->vi->height, .planes[0] = plane, .repr = crpr, .color = csp};
+    struct pl_render_target out = {.color = csp_out, .repr = crpr, .fbo = dst};
+    struct pl_render_params renderParams = pl_render_default_params;
+    renderParams.peak_detect_params = NULL;
+    return pl_render_image(d->rr, &img, &out, &renderParams);
 }
 
 bool reconfig_TM(void *priv, const struct image *proxy)
@@ -108,7 +114,7 @@ bool reconfig_TM(void *priv, const struct image *proxy)
     return true;
 }
 
-bool filter_TM(void *priv, struct image *dst, struct image *src, void* d)
+bool filter_TM(void *priv, struct image *dst, struct image *src, void* d, int n)
 {
     struct priv *p = priv;
     struct pl_plane_data data[MAX_PLANES];
@@ -130,7 +136,7 @@ bool filter_TM(void *priv, struct image *dst, struct image *src, void* d)
 
     // Process planes
     for (int i = 0; i < src->num_planes; i++) {
-        if (!do_plane_TM(p, p->tex_out[i], p->tex_in[i], d)) {
+        if (!do_plane_TM(p, p->tex_out[i], p->tex_in[i], d, n)) {
             fprintf(stderr, "Failed processing planes!\n");
             return false;
         }
@@ -153,11 +159,6 @@ bool filter_TM(void *priv, struct image *dst, struct image *src, void* d)
     return true;
 }
 
-// -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// Tonemap
-
 static void VS_CC TMInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
     TMData *d = (TMData *) * instanceData;
     VSVideoInfo new_vi = (VSVideoInfo) * (d->vi);
@@ -169,13 +170,8 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
 
     if (activationReason == arInitial) {
         vsapi->requestFrameFilter(n, d->node, frameCtx);
-        vsapi->requestFrameFilter(n, d->stats_node, frameCtx);
     } else if (activationReason == arAllFramesReady) {
         const VSFrameRef *frame = vsapi->getFrameFilter(n, d->node, frameCtx);
-        const VSFrameRef *statsFrame = vsapi->getFrameFilter(n, d->stats_node, frameCtx);
-        const VSMap* props = vsapi->getFramePropsRO(statsFrame);
-        double avg = vsapi->propGetFloat(props, "PlaneStatsAverage", 0, NULL);
-        double peak = vsapi->propGetFloat(props, "PlaneStatsMax", 0, NULL);
 
         int ih = vsapi->getFrameHeight(frame, 0);
         int iw = vsapi->getFrameWidth(frame, 0);
@@ -214,7 +210,7 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
         out.planes[0].data = packed_dst;
 
         if (reconfig_TM(d->vf, &proxy))
-            filter_TM(d->vf, &out, &src, &(tm_params) {.avg = avg, .peak = peak});
+            filter_TM(d->vf, &out, &src, d, n);
 
         pack_params.src[0] = packed_dst;
         pack_params.src_stride[0] = pack_params.dst_stride[0];
@@ -227,7 +223,6 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
         free(packed_dst);
         free(packed_src);
         vsapi->freeFrame(frame);
-        vsapi->freeFrame(statsFrame);
         return dst;
     }
 
@@ -237,7 +232,7 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
 static void VS_CC TMFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
     TMData *d = (TMData *)instanceData;
     vsapi->freeNode(d->node);
-    vsapi->freeNode(d->stats_node);
+    pl_renderer_destroy(&(d->rr));
     uninit(d->vf);
     free(d);
 }
@@ -254,142 +249,12 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
         vsapi->setError(out, "placebo.Tonemap: Input should be 16 bit RGB!.");
     }
 
-    // get stats
-    // ------------------------------------------------
-
-    VSPlugin *stdplugin = vsapi->getPluginById("com.vapoursynth.std", core);
-    VSPlugin *resize = vsapi->getPluginById("com.vapoursynth.resize", core);
-    VSMap *args = vsapi->createMap();
-    VSNodeRef *outclip = vsapi->propGetNode(in, "clip", 0, 0);
-    VSMap *outm;
-
-#if 0 // the proper version which I cant run because R49 windows binaries are botched
-    VSNodeRef *planes[3];
-    vsapi->propSetNode(args, "clips", outclip, paReplace);
-    vsapi->propSetInt(args, "colorfamily", cmGray, paReplace);
-    for (int i = 0; i < 3; ++i) {
-        vsapi->propSetInt(args, "planes", i, paReplace);
-        outm = vsapi->invoke(stdplugin, "ShufflePlanes", args);
-        planes[i] = vsapi->propGetNode(outm, "clip", 0, 0);
-        vsapi->freeMap(outm);
-    }
-    vsapi->clearMap(args);
-    vsapi->freeNode(outclip);
-
-    for (int j = 0; j < 3; ++j) {
-        vsapi->propSetNode(args, "clips", planes[j], paAppend);
-        vsapi->freeNode(planes[j]);
-    }
-    vsapi->propSetData(args, "expr", "x y z max max", -1, paReplace);
-    outm = vsapi->invoke(stdplugin, "Expr", args);
-    outclip = vsapi->propGetNode(outm, "clip", 0, 0);
-    vsapi->freeMap(outm);
-    vsapi->clearMap(args);
-
-    vsapi->propSetNode(args, "clip", outclip, paReplace);
-    vsapi->propSetData(args, "prop", "_Matrix", -1, paReplace);
-    vsapi->propSetInt(args, "delete", 1, paReplace);
-    outm = vsapi->invoke(stdplugin, "SetFrameProp", args);
-
-    vsapi->freeNode(outclip);
-    vsapi->clearMap(args);
-    outclip = vsapi->propGetNode(outm, "clip", 0, 0);
-    vsapi->freeMap(outm);
-
-    vsapi->propSetNode(args, "clip", outclip, paReplace);
-    vsapi->propSetData(args, "transfer_in_s", "st2084", -1, paReplace);
-    vsapi->propSetData(args, "transfer_s", "linear", -1, paReplace);
-    vsapi->propSetFloat(args, "nominal_luminance", PL_COLOR_REF_WHITE, paReplace);
-    vsapi->propSetInt(args, "format", pfGrayS, paReplace);
-    outm = vsapi->invoke(resize, "Spline36", args);
-
-    vsapi->freeNode(outclip);
-    vsapi->clearMap(args);
-    outclip = vsapi->propGetNode(outm, "clip", 0, 0);
-    vsapi->freeMap(outm);
-
-    vsapi->propSetNode(args, "clipa", outclip, paReplace);
-    outm = vsapi->invoke(stdplugin, "PlaneStats", args);
-
-    d.stats_node = vsapi->propGetNode(outm, "clip", 0, 0);
-    vsapi->freeNode(outclip);
-    vsapi->freeMap(args);
-    vsapi->freeMap(outm);
-    // -----------------------------------------------
-    // -----------------------------------------------
-#elseif 0
-    vsapi->propSetNode(args, "clip", outclip, paReplace);
-    vsapi->propSetData(args, "transfer_in_s", "st2084", -1, paReplace);
-    vsapi->propSetData(args, "transfer_s", "linear", -1, paReplace);
-    vsapi->propSetFloat(args, "nominal_luminance", PL_COLOR_REF_WHITE, paReplace);
-    vsapi->propSetInt(args, "format", pfRGBS, paReplace);
-    outm = vsapi->invoke(resize, "Spline36", args);
-
-    vsapi->freeNode(outclip);
-    vsapi->clearMap(args);
-    outclip = vsapi->propGetNode(outm, "clip", 0, 0);
-    vsapi->freeMap(outm);
-
-    VSNodeRef *planes[3];
-    vsapi->propSetNode(args, "clips", outclip, paReplace);
-    vsapi->propSetInt(args, "colorfamily", cmGray, paReplace);
-    for (int i = 0; i < 3; ++i) {
-        vsapi->propSetInt(args, "planes", i, paReplace);
-        outm = vsapi->invoke(stdplugin, "ShufflePlanes", args);
-        planes[i] = vsapi->propGetNode(outm, "clip", 0, 0);
-        vsapi->freeMap(outm);
-    }
-    vsapi->clearMap(args);
-    vsapi->freeNode(outclip);
-
-    for (int j = 0; j < 3; ++j) {
-        vsapi->propSetNode(args, "clips", planes[j], paAppend);
-        vsapi->freeNode(planes[j]);
-    }
-    vsapi->propSetData(args, "expr", "x y z max max", -1, paReplace);
-    outm = vsapi->invoke(stdplugin, "Expr", args);
-    outclip = vsapi->propGetNode(outm, "clip", 0, 0);
-    vsapi->freeMap(outm);
-    vsapi->clearMap(args);
-
-    vsapi->propSetNode(args, "clipa", outclip, paReplace);
-    outm = vsapi->invoke(stdplugin, "PlaneStats", args);
-
-    d.stats_node = vsapi->propGetNode(outm, "clip", 0, 0);
-    vsapi->freeNode(outclip);
-    vsapi->freeMap(args);
-    vsapi->freeMap(outm);
-    // -----------------------------------------------
-    // -----------------------------------------------
-#endif
-#if 1
-    vsapi->propSetNode(args, "clip", outclip, paReplace);
-    vsapi->propSetData(args, "transfer_in_s", "st2084", -1, paReplace);
-    vsapi->propSetData(args, "transfer_s", "linear", -1, paReplace);
-    vsapi->propSetData(args, "matrix_s", "2020ncl", -1, paReplace);
-    vsapi->propSetFloat(args, "nominal_luminance", PL_COLOR_REF_WHITE, paReplace);
-    vsapi->propSetInt(args, "format", pfGrayS, paReplace);
-    outm = vsapi->invoke(resize, "Spline36", args);
-
-    vsapi->freeNode(outclip);
-    vsapi->clearMap(args);
-    outclip = vsapi->propGetNode(outm, "clip", 0, 0);
-    vsapi->freeMap(outm);
-
-    vsapi->propSetNode(args, "clipa", outclip, paReplace);
-    outm = vsapi->invoke(stdplugin, "PlaneStats", args);
-
-    d.stats_node = vsapi->propGetNode(outm, "clip", 0, 0);
-    vsapi->freeNode(outclip);
-    vsapi->freeMap(args);
-    vsapi->freeMap(outm);
-
-#endif
 
     d.vf = init();
+    d.rr = pl_renderer_create(d.vf->ctx, d.vf->gpu);
 
     data = malloc(sizeof(d));
     *data = d;
 
-    vsapi->createFilter(in, out, "Tonemap", TMInit, TMGetFrame, TMFree, fmUnordered, 0, data, core);
+    vsapi->createFilter(in, out, "Tonemap", TMInit, TMGetFrame, TMFree, fmSerial, 0, data, core);
 }
