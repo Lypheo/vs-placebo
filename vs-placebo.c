@@ -40,6 +40,12 @@ void *init(void) {
         goto error;
     }
 
+    p->rr = pl_renderer_create(p->ctx, p->gpu);
+    if (!p->rr) {
+        fprintf(stderr, "Failed creating renderer\n");
+        goto error;
+    }
+
     return p;
 
     error:
@@ -56,6 +62,7 @@ void uninit(void *priv)
         pl_tex_destroy(p->gpu, &p->tex_out[i]);
     }
 
+    pl_renderer_destroy(&p->rr);
     pl_shader_obj_destroy(&p->dither_state);
     pl_dispatch_destroy(&p->dp);
     pl_vulkan_destroy(&p->vk);
