@@ -65,6 +65,8 @@ bool do_plane(struct priv *p, const struct pl_tex *dst, const struct pl_tex *src
     if (d->dither)
         pl_shader_dither(sh, new_depth, &p->dither_state, &(struct pl_dither_params) {.method = d->dither_algo,});
 
+//    pl_shader_color_map(sh, &pl_color_map_default_params, (struct pl_color_space) {.primaries=PL_COLOR_PRIM_BT_2020, .transfer=PL_COLOR_TRC_PQ},
+//            (struct pl_color_space) {.primaries = PL_COLOR_PRIM_BT_709, .transfer = PL_COLOR_TRC_UNKNOWN}, NULL, false);
     return pl_dispatch_finish(p->dp, &sh, dst, NULL, NULL);
 }
 
