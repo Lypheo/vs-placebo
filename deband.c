@@ -29,130 +29,91 @@ typedef struct {
     struct pl_deband_params *debandParams;
 } MData;
 
-void setup_plane_data(const struct image *img,
-                      struct pl_plane_data out[MAX_PLANES])
-{
-    for (int i = 0; i < img->num_planes; i++) {
-        const struct plane *plane = &img->planes[i];
-
-        out[i] = (struct pl_plane_data) {
-                .type = PL_FMT_UNORM,
-                .width = img->width >> plane->subx,
-                .height = img->height >> plane->suby,
-                .pixel_stride = plane->fmt.num_comps * plane->fmt.bitdepth / 8,
-                .row_stride = plane->stride,
-                .pixels = plane->data,
-        };
-
-        for (int c = 0; c < plane->fmt.num_comps; c++) {
-            out[i].component_size[c] = plane->fmt.bitdepth;
-            out[i].component_pad[c] = 0;
-            out[i].component_map[c] = c;
-        }
-    }
-}
-
-bool do_plane(struct priv *p, const struct pl_tex *dst, const struct pl_tex *src, void* data)
+bool do_plane(struct priv *p, void* data)
 {
     struct pl_shader *sh = pl_dispatch_begin(p->dp);
     MData* d = (MData*) data;
-    int new_depth = dst->params.format->component_depth[0];
-    pl_shader_deband(sh, &(struct pl_sample_src){ .tex = src },
+    int new_depth = p->tex_out[0]->params.format->component_depth[0];
+    pl_shader_deband(sh, &(struct pl_sample_src){ .tex = p->tex_in[0]},
                      d->debandParams);
     if (d->dither)
         pl_shader_dither(sh, new_depth, &p->dither_state, d->ditherParams);
-    return pl_dispatch_finish(p->dp, &sh, dst, NULL, NULL);
+    return pl_dispatch_finish(p->dp, &sh, p->tex_out[0], NULL, NULL);
 }
 
-bool reconfig(void *priv, const struct image *proxy)
+bool reconfig(void *priv, struct pl_plane_data *data)
 {
     struct priv *p = priv;
-    struct pl_plane_data data[MAX_PLANES];
-    setup_plane_data(proxy, data);
 
-    for (int i = 0; i < proxy->num_planes; i++) {
-        const struct pl_fmt *fmt = pl_plane_find_fmt(p->gpu, NULL, &data[i]);
-        if (!fmt) {
-            fprintf(stderr, "Failed configuring filter: no good texture format!\n");
-            return false;
-        }
+    const struct pl_fmt *fmt = pl_plane_find_fmt(p->gpu, NULL, data);
+    if (!fmt) {
+        fprintf(stderr, "Failed configuring filter: no good texture format!\n");
+        return false;
+    }
 
-        bool ok = true;
-        ok &= pl_tex_recreate(p->gpu, &p->tex_in[i], &(struct pl_tex_params) {
-                .w = data[i].width,
-                .h = data[i].height,
-                .format = fmt,
-                .sampleable = true,
-                .host_writable = true,
-                .sample_mode = PL_TEX_SAMPLE_LINEAR,
-        });
+    bool ok = true;
+    ok &= pl_tex_recreate(p->gpu, &p->tex_in[0], &(struct pl_tex_params) {
+            .w = data->width,
+            .h = data->height,
+            .format = fmt,
+            .sampleable = true,
+            .host_writable = true,
+            .sample_mode = PL_TEX_SAMPLE_LINEAR,
+    });
 
-        ok &= pl_tex_recreate(p->gpu, &p->tex_out[i], &(struct pl_tex_params) {
-                .w = data[i].width,
-                .h = data[i].height,
-                .format = fmt,
-                .renderable = true,
-                .host_readable = true,
-        });
+    ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], &(struct pl_tex_params) {
+            .w = data->width,
+            .h = data->height,
+            .format = fmt,
+            .renderable = true,
+            .host_readable = true,
+    });
 
-        if (!ok) {
-            fprintf(stderr, "Failed creating GPU textures!\n");
-            return false;
-        }
+    if (!ok) {
+        fprintf(stderr, "Failed creating GPU textures!\n");
+        return false;
     }
 
     return true;
 }
 
-bool filter(void *priv, struct image *dst, struct image *src, void* d)
+bool filter(void *priv, void *dst, struct pl_plane_data *src, void* d)
 {
     struct priv *p = priv;
-    struct pl_plane_data data[MAX_PLANES];
-    setup_plane_data(src, data);
 
     // Upload planes
-    for (int i = 0; i < src->num_planes; i++) {
-        bool ok = pl_tex_upload(p->gpu, &(struct pl_tex_transfer_params) {
-                .tex = p->tex_in[i],
-                .stride_w = data[i].row_stride / data[i].pixel_stride,
-                .ptr = src->planes[i].data,
-        });
+    bool ok = true;
+    ok &= pl_tex_upload(p->gpu, &(struct pl_tex_transfer_params) {
+            .tex = p->tex_in[0],
+            .stride_w = src->row_stride / src->pixel_stride,
+            .ptr = src->pixels,
+    });
 
-        if (!ok) {
-            fprintf(stderr, "Failed uploading data to the GPU!\n");
-            return false;
-        }
+    if (!ok) {
+        fprintf(stderr, "Failed uploading data to the GPU!\n");
+        return false;
     }
 
-    // Process planes
-    for (int i = 0; i < src->num_planes; i++) {
-        if (!do_plane(p, p->tex_out[i], p->tex_in[i], d)) {
-            fprintf(stderr, "Failed processing planes!\n");
-            return false;
-        }
+    // Process plane
+    if (!do_plane(p, d)) {
+        fprintf(stderr, "Failed processing planes!\n");
+        return false;
     }
 
     // Download planes
-    for (int i = 0; i < src->num_planes; i++) {
-        bool ok = pl_tex_download(p->gpu, &(struct pl_tex_transfer_params) {
-                .tex = p->tex_out[i],
-                .stride_w = dst->planes[i].stride / data[i].pixel_stride,
-                .ptr = dst->planes[i].data,
-        });
+    ok = pl_tex_download(p->gpu, &(struct pl_tex_transfer_params) {
+            .tex = p->tex_out[0],
+            .stride_w = src->row_stride / src->pixel_stride,
+            .ptr = dst,
+    });
 
-        if (!ok) {
-            fprintf(stderr, "Failed downloading data from the GPU!\n");
-            return false;
-        }
+    if (!ok) {
+        fprintf(stderr, "Failed downloading data from the GPU!\n");
+        return false;
     }
 
     return true;
 }
-
-// -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// Deband
 
 static void VS_CC DebandInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
     MData *d = (MData *) * instanceData;
@@ -179,16 +140,20 @@ static const VSFrameRef *VS_CC DebandGetFrame(int n, int activationReason, void 
                           vsapi->getStride(frame, i), ((unsigned int) iw >> (unsigned int) d->vi->format->subSamplingW) * d->vi->format->bytesPerSample,
                           vsapi->getFrameHeight(dst, i));
             else {
-                struct image proxy = {
-                        .width = vsapi->getFrameWidth(frame, i), .height = vsapi->getFrameHeight(frame, i), .num_planes = 1,
-                        .planes = { { .subx = 0, .suby = 0, .stride = vsapi->getStride(frame, i), .fmt = { .num_comps = 1, .bitdepth = d->vi->format->bytesPerSample * 8, }, }, },
+                struct pl_plane_data plane = {
+                        .type = PL_FMT_UNORM,
+                        .width = vsapi->getFrameWidth(frame, i),
+                        .height = vsapi->getFrameHeight(frame, i),
+                        .pixel_stride = 1 /* components */ * d->vi->format->bytesPerSample /* bytes per sample*/,
+                        .row_stride =  vsapi->getStride(frame, i),
+                        .pixels =  vsapi->getWritePtr(frame, i),
+                        .component_size[0] = d->vi->format->bitsPerSample,
+                        .component_pad[0] = 0,
+                        .component_map[0] = 0,
                 };
-                struct image src = proxy, out = proxy;
-                src.planes[0].data = vsapi->getWritePtr(frame, i);
-                out.planes[0].data = vsapi->getWritePtr(dst, i);
 
-                if (reconfig(d->vf, &proxy))
-                    filter(d->vf, &out, &src, d);
+                if (reconfig(d->vf, &plane))
+                    filter(d->vf, vsapi->getWritePtr(dst, i), &plane, d);
             }
         }
 
