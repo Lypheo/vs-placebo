@@ -18,29 +18,28 @@
 #include "libplacebo/utils/upload.h"
 #include "libplacebo/vulkan.h"
 
-#include "vs-placebo.h"
 #include "../libp2p/p2p_api.h"
 
 typedef  struct {
     VSNodeRef *node;
     const VSVideoInfo *vi;
     struct priv * vf;
+    struct pl_render_params *renderParams;
+    struct pl_color_space *src_csp;
+    struct pl_color_space *dst_csp;
 } TMData;
 
 bool do_plane_TM(struct priv *p, const struct pl_tex *dst, const struct pl_tex *src, void* data, int n)
 {
     TMData* d = (TMData*) data;
-    struct pl_plane plane = {.texture = src, .components = 4};
-    for (int i = 0; i < 4 ; ++i) {
-        plane.component_mapping[i] = i;
-    }
+    struct pl_plane plane = {.texture = src, .components = 3};
+    for (int i = 0; i < 4 ; ++i)
+        plane.component_mapping[i] = i != 3 ? i : -1;
     static const struct pl_color_repr crpr = {.bits = {.sample_depth = 16, .color_depth = 16, .bit_shift = 0}, .levels = PL_COLOR_LEVELS_PC, .alpha = PL_ALPHA_INDEPENDENT, .sys = PL_COLOR_SYSTEM_RGB};
-    static const struct pl_color_space csp = {.primaries = PL_COLOR_PRIM_BT_2020, .transfer = PL_COLOR_TRC_PQ, .light =  PL_COLOR_LIGHT_DISPLAY};
-    static const struct pl_color_space csp_out = {.primaries = PL_COLOR_PRIM_BT_709, .transfer = PL_COLOR_TRC_UNKNOWN, .light = PL_COLOR_LIGHT_DISPLAY};
-    struct pl_image img = {.signature = n, .num_planes = 1, .width = d->vi->width, .height = d->vi->height, .planes[0] = plane, .repr = crpr, .color = csp};
-    struct pl_render_target out = {.color = csp_out, .repr = crpr, .fbo = dst};
-    struct pl_render_params renderParams = pl_render_default_params;
-    return pl_render_image(p->rr, &img, &out, &renderParams);
+
+    struct pl_image img = {.signature = n, .num_planes = 1, .width = d->vi->width, .height = d->vi->height, .planes[0] = plane, .repr = crpr, .color = *d->src_csp};
+    struct pl_render_target out = {.color = *d->dst_csp, .repr = crpr, .fbo = dst};
+    return pl_render_image(p->rr, &img, &out, d->renderParams);
 }
 
 bool config_TM(void *priv, struct pl_plane_data *data)
@@ -135,33 +134,33 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
 
         VSFrameRef *dst = vsapi->newVideoFrame(d->vi->format, iw, ih, frame, core);
 
-        void* packed_src = malloc(ih * iw * 4 * d->vi->format->bytesPerSample);
-        void* packed_dst = malloc(ih * iw * 4 * d->vi->format->bytesPerSample);
+        void* packed_src = malloc(ih * iw * 3 * 2);
+        void* packed_dst = malloc(ih * iw * 3 * 2);
 
         struct p2p_buffer_param pack_params = {};
         pack_params.width = iw; pack_params.height = ih;
-        pack_params.packing = p2p_abgr64_le;
+        pack_params.packing = p2p_bgr48_le;
         for (int j = 0; j < 3; ++j) {
             pack_params.src_stride[j] = vsapi->getStride(frame, j);;
             pack_params.src[j] = vsapi->getWritePtr(frame, j);
         }
         pack_params.src[3] = NULL;
-        pack_params.dst_stride[0] = iw * 4 * 2;
+        pack_params.dst_stride[0] = iw * 3 * 2;
         pack_params.dst[0] = packed_src;
 
-        p2p_pack_frame(&pack_params, P2P_ALPHA_SET_ONE);
+        p2p_pack_frame(&pack_params, 0);
 
         struct pl_plane_data plane = (struct pl_plane_data) {
                 .type = PL_FMT_UNORM,
                 .width = iw,
                 .height = ih,
-                .pixel_stride = 4 /* components */ * 2 /* bytes per sample*/,
+                .pixel_stride = 3 /* components */ * 2 /* bytes per sample*/,
                 .row_stride =  pack_params.dst_stride[0],
                 .pixels =  pack_params.dst[0],
         };
 
-        for (int c = 0; c < 4 /* components */; c++) {
-            plane.component_size[c] = 16; //bitdepth
+        for (int c = 0; c < 4; c++) {
+            plane.component_size[c] = c != 3 ? 16 : 0;
             plane.component_pad[c] = 0;
             plane.component_map[c] = c;
         }
@@ -190,6 +189,11 @@ static void VS_CC TMFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
     TMData *d = (TMData *)instanceData;
     vsapi->freeNode(d->node);
     uninit(d->vf);
+    free(d->dst_csp);
+    free(d->src_csp);
+    free(d->renderParams->peak_detect_params);
+    free(d->renderParams->color_map_params);
+    free(d->renderParams);
     free(d);
 }
 
@@ -201,11 +205,65 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
 
-    if ((d.vi->format->bitsPerSample != 8 && d.vi->format->bitsPerSample != 16) || d.vi->format->sampleType != stInteger || d.vi->format->colorFamily != cmRGB) {
-        vsapi->setError(out, "placebo.Tonemap: Input should be 16 bit RGB!.");
+    if (d.vi->format->colorFamily != cmRGB || d.vi->format->bitsPerSample != 16) {
+        vsapi->setError(out, "placebo.Tonemap: Input should be RGB48!.");
+        vsapi->freeNode(d.node);
     }
 
     d.vf = init();
+    struct pl_color_map_params *colorMapParams = malloc(sizeof(struct pl_color_map_params));
+
+#define COLORM_PARAM(par, type) colorMapParams->par = vsapi->propGet##type(in, #par, 0, &err); \
+        if (err) colorMapParams->par = pl_color_map_default_params.par;
+
+    COLORM_PARAM(tone_mapping_algo, Float)
+    COLORM_PARAM(desaturation_base, Float)
+    COLORM_PARAM(desaturation_strength, Float)
+    COLORM_PARAM(desaturation_exponent, Float)
+    COLORM_PARAM(max_boost, Float)
+    COLORM_PARAM(gamut_warning, Int)
+    COLORM_PARAM(intent, Int)
+
+    struct pl_peak_detect_params *peakDetectParams = malloc(sizeof(struct pl_peak_detect_params));
+#define PEAK_PARAM(par, type) peakDetectParams->par = vsapi->propGet##type(in, #par, 0, &err); \
+        if (err) peakDetectParams->par = pl_peak_detect_default_params.par;
+
+    PEAK_PARAM(smoothing_period, Float)
+    PEAK_PARAM(scene_threshold_low, Float)
+    PEAK_PARAM(scene_threshold_high, Float)
+
+    struct pl_color_space *src_csp = malloc((sizeof(struct pl_color_space)));
+    *src_csp = (struct pl_color_space) {
+            .primaries = vsapi->propGetInt(in, "srcp", 0, &err),
+            .transfer = vsapi->propGetInt(in, "srct", 0, &err),
+            .light = vsapi->propGetInt(in, "srcl", 0, &err),
+            .sig_avg = vsapi->propGetFloat(in, "src_avg", 0, &err),
+            .sig_peak = vsapi->propGetFloat(in, "src_peak", 0, &err),
+            .sig_scale = vsapi->propGetFloat(in, "src_scale", 0, &err)
+    };
+    struct pl_color_space *dst_csp = malloc((sizeof(struct pl_color_space)));
+    *dst_csp = (struct pl_color_space) {
+            .primaries = vsapi->propGetInt(in, "dstp", 0, &err),
+            .transfer = vsapi->propGetInt(in, "dstt", 0, &err),
+            .light = vsapi->propGetInt(in, "dstl", 0, &err),
+            .sig_avg = vsapi->propGetFloat(in, "dst_avg", 0, &err),
+            .sig_peak = vsapi->propGetFloat(in, "dst_peak", 0, &err),
+            .sig_scale = vsapi->propGetFloat(in, "dst_scale", 0, &err)
+    };
+    int peak_detection = vsapi->propGetInt(in, "dynamic_peak_detection", 0, &err);
+    if (err) peak_detection = 1;
+
+    struct pl_render_params *renderParams = malloc(sizeof(struct pl_render_params));
+    *renderParams = pl_render_default_params;
+    renderParams->color_map_params = colorMapParams;
+    renderParams->peak_detect_params = peak_detection ? peakDetectParams : NULL;
+    renderParams->deband_params = NULL;
+    renderParams->sigmoid_params = NULL;
+    renderParams->cone_params = NULL;
+    renderParams->dither_params = NULL;
+    d.renderParams = renderParams;
+    d.src_csp = src_csp;
+    d.dst_csp = dst_csp;
 
     data = malloc(sizeof(d));
     *data = d;

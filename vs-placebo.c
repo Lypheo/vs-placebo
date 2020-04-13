@@ -74,5 +74,11 @@ void uninit(void *priv)
 VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegisterFunction registerFunc, VSPlugin *plugin) {
     configFunc("com.vs.placebo", "placebo", "libplacebo plugin for VapourSynth", VAPOURSYNTH_API_VERSION, 1, plugin);
     registerFunc("Deband", "clip:clip;planes:int:opt;iterations:int:opt;threshold:float:opt;radius:float:opt;grain:float:opt;dither:int:opt;dither_algo:int:opt", DebandCreate, 0, plugin);
-    registerFunc("Tonemap", "clip:clip;", TMCreate, 0, plugin);
+    registerFunc("Tonemap", "clip:clip;"
+                            "srcp:int:opt;srct:int:opt;srcl:int:opt;src_peak:float:opt;src_avg:float:opt;src_scale:float:opt;"
+                            "dstp:int:opt;dstt:int:opt;dstl:int:opt;dst_peak:float:opt;dst_avg:float:opt;dst_scale:float:opt;"
+                            "dynamic_peak_detection:int:opt;smoothing_period:float:opt;scene_threshold_low:float:opt;scene_threshold_high:float:opt;"
+                            "intent:int:opt;"
+                            "tone_mapping_algo:int:opt;tone_mapping_param:float:opt;desaturation_strength:float:opt;desaturation_exponent:float:opt;desaturation_base:float:opt;max_boost:float:opt;gamut_warning:int:opt;"
+                            , TMCreate, 0, plugin);
 }
