@@ -24,12 +24,9 @@ typedef struct {
     const VSVideoInfo *vi;
     void * vf;
     unsigned int planes;
-    float threshold;
-    int iterations;
-    float radius;
-    float grain;
-    int dither_algo;
     int dither;
+    struct pl_dither_params *ditherParams;
+    struct pl_deband_params *debandParams;
 } MData;
 
 void setup_plane_data(const struct image *img,
@@ -61,12 +58,9 @@ bool do_plane(struct priv *p, const struct pl_tex *dst, const struct pl_tex *src
     MData* d = (MData*) data;
     int new_depth = dst->params.format->component_depth[0];
     pl_shader_deband(sh, &(struct pl_sample_src){ .tex = src },
-                     &(struct pl_deband_params) {.iterations = d->iterations, .threshold = d->threshold, .radius = d->radius, .grain = d->grain});
+                     d->debandParams);
     if (d->dither)
-        pl_shader_dither(sh, new_depth, &p->dither_state, &(struct pl_dither_params) {.method = d->dither_algo,});
-
-//    pl_shader_color_map(sh, &pl_color_map_default_params, (struct pl_color_space) {.primaries=PL_COLOR_PRIM_BT_2020, .transfer=PL_COLOR_TRC_PQ},
-//            (struct pl_color_space) {.primaries = PL_COLOR_PRIM_BT_709, .transfer = PL_COLOR_TRC_UNKNOWN}, NULL, false);
+        pl_shader_dither(sh, new_depth, &p->dither_state, d->ditherParams);
     return pl_dispatch_finish(p->dp, &sh, dst, NULL, NULL);
 }
 
@@ -209,6 +203,8 @@ static void VS_CC DebandFree(void *instanceData, VSCore *core, const VSAPI *vsap
     MData *d = (MData *)instanceData;
     vsapi->freeNode(d->node);
     uninit(d->vf);
+    free(d->ditherParams);
+    free(d->debandParams);
     free(d);
 }
 
@@ -230,30 +226,27 @@ void VS_CC DebandCreate(const VSMap *in, VSMap *out, void *userData, VSCore *cor
     if (err)
         d.dither = 1;
 
-    d.dither_algo = vsapi->propGetInt(in, "dither_algo", 0, &err);
-    if (err)
-        d.dither_algo = 1;
-
     d.planes = (unsigned int) vsapi->propGetInt(in, "planes", 0, &err);
     if (err)
         d.planes = 1u;
 
-    d.iterations = vsapi->propGetInt(in, "iterations", 0, &err);
-    if (err)
-        d.iterations = 1;
+    struct pl_deband_params *debandParams = malloc(sizeof(struct pl_deband_params));
+#define DB_PARAM(par, type) debandParams->par = vsapi->propGet##type(in, #par, 0, &err); \
+        if (err) debandParams->par = pl_deband_default_params.par;
 
-    d.threshold = vsapi->propGetFloat(in, "threshold", 0, &err);
-    if (err)
-        d.threshold = 30.f;
+    DB_PARAM(iterations, Int)
+    DB_PARAM(threshold, Float)
+    DB_PARAM(grain, Float)
+    DB_PARAM(radius, Float)
 
-    d.grain = vsapi->propGetFloat(in, "grain", 0, &err);
+    struct pl_dither_params *plDitherParams = malloc(sizeof(struct pl_dither_params));
+    *plDitherParams = pl_dither_default_params;
+    plDitherParams->method = vsapi->propGetInt(in, "dither_algo", 0, &err);
     if (err)
-        d.grain = 6.f;
+        plDitherParams->method = pl_dither_default_params.method;
 
-    d.radius = vsapi->propGetFloat(in, "radius", 0, &err);
-    if (err)
-        d.radius = 16.f;
-
+    d.ditherParams = plDitherParams;
+    d.debandParams = debandParams;
     data = malloc(sizeof(d));
     *data = d;
 
