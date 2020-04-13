@@ -6,10 +6,9 @@
 #include <stdio.h>
 #include <math.h>
 
-#include "libplacebo/dispatch.h"
-#include "libplacebo/shaders/sampling.h"
-#include "libplacebo/utils/upload.h"
-#include "libplacebo/vulkan.h"
+#include <libplacebo/dispatch.h>
+#include <libplacebo/utils/upload.h>
+#include <libplacebo/vulkan.h>
 
 #include "vs-placebo.h"
 

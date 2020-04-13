@@ -8,8 +8,8 @@
 #include "VapourSynth.h"
 #include "VSHelper.h"
 #include <stdbool.h>
-#include "libplacebo/dispatch.h"
-#include "libplacebo/utils/upload.h"
+#include <libplacebo/dispatch.h>
+#include <libplacebo/utils/upload.h>
 
 typedef struct {
     VSNodeRef *node;

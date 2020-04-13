@@ -1,10 +1,10 @@
 #ifndef VS_PLACEBO_LIBRARY_H
 #define VS_PLACEBO_LIBRARY_H
 
-#include "libplacebo/dispatch.h"
-#include "libplacebo/shaders/sampling.h"
-#include "libplacebo/utils/upload.h"
-#include "libplacebo/vulkan.h"
+#include <libplacebo/dispatch.h>
+#include <libplacebo/shaders/sampling.h>
+#include <libplacebo/utils/upload.h>
+#include <libplacebo/vulkan.h>
 
 struct format {
     int num_comps;
