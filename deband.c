@@ -1,7 +1,3 @@
-//
-// Created by saifu on 4/6/2020.
-//
-
 #include "vs-placebo.h"
 #include <stdlib.h>
 #include <stdio.h>

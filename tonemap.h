@@ -1,7 +1,3 @@
-//
-// Created by saifu on 4/6/2020.
-//
-
 #ifndef VS_PLACEBO_TONEMAP_H
 #define VS_PLACEBO_TONEMAP_H
 
