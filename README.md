@@ -26,6 +26,6 @@ For example, to map from [BT.2020, PQ\] (HDR) to traditional [BT.709, BT.1886\] 
 - ``tone_mapping_algo, tone_mapping_param, desaturation_strength, desaturation_exponent, desaturation_base, max_boost, gamut_warning``:
  [Color mapping params](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L199).
 
-##``placebo.Resample``
+#### ``placebo.Resample``
 
 Coming soon™.
