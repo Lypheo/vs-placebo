@@ -1,7 +1,7 @@
 # vs-placebo
 
 
-## ``placebo.Deband(clip clip[, int planes = 1, int iterations = 1, float threshold = 4.0, float radius = 16.0, float grain = 6.0, int dither = True, int dither_algo = 0])``
+#### ``placebo.Deband(clip clip[, int planes = 1, int iterations = 1, float threshold = 4.0, float radius = 16.0, float grain = 6.0, int dither = True, int dither_algo = 0])``
 
 Input needs to be 8 or 16 bit.
 
@@ -14,7 +14,7 @@ For details on the [debanding params](https://github.com/haasn/libplacebo/blob/m
 and the [dither methods](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L275),
 see the libplacebo header files.
 
-## ``placebo.Tonemap(clip clip[, int srcp, int srct, int srcl, float src_peak, float src_avg, float src_scale, int dstp, int dstt, int dstl, float dst_peak, float dst_avg, float dst_scale, int dynamic_peak_detection, float smoothing_period, float scene_threshold_low, scene_threshold_high, int intent, int tone_mapping_algo, float tone_mapping_param, float desaturation_strength, float desaturation_exponent, float desaturation_base, float max_boost, int gamut_warning])``
+#### ``placebo.Tonemap(clip clip[, int srcp, int srct, int srcl, float src_peak, float src_avg, float src_scale, int dstp, int dstt, int dstl, float dst_peak, float dst_avg, float dst_scale, int dynamic_peak_detection, float smoothing_period, float scene_threshold_low, scene_threshold_high, int intent, int tone_mapping_algo, float tone_mapping_param, float desaturation_strength, float desaturation_exponent, float desaturation_base, float max_boost, int gamut_warning])``
 Performs color mapping (which includes tonemapping from HDR to SDR, but can do a lot more). Expects **16 bit RGB**.
 
 - ``srcp, srct, srcl, dstp, dstt, dstl, src_peak, src_avg, src_scale, dst_peak, dst_avg, dst_scale``:
