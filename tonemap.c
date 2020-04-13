@@ -262,5 +262,5 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
     data = malloc(sizeof(d));
     *data = d;
 
-    vsapi->createFilter(in, out, "Tonemap", TMInit, TMGetFrame, TMFree, fmSerial, 0, data, core);
+    vsapi->createFilter(in, out, "Tonemap", TMInit, TMGetFrame, TMFree, peak_detection ? fmSerial : fmUnordered, 0, data, core);
 }
