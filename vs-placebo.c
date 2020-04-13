@@ -1,4 +1,4 @@
-#include "../VapourSynth.h"
+#include "VapourSynth.h"
 #include "deband.h"
 #include "tonemap.h"
 

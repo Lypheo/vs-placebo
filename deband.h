@@ -1,7 +1,7 @@
 #ifndef VS_PLACEBO_DEBAND_H
 #define VS_PLACEBO_DEBAND_H
 
-#include "../VapourSynth.h"
+#include "VapourSynth.h"
 
 void VS_CC DebandCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi);
 

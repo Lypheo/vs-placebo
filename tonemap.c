@@ -2,23 +2,16 @@
 // Created by saifu on 4/6/2020.
 //
 
-#include "tonemap.h"
 #include "vs-placebo.h"
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <math.h>
-#include "../VapourSynth.h"
-#include "../VSHelper.h"
-
+#include "VapourSynth.h"
 #include <stdbool.h>
-
 #include "libplacebo/dispatch.h"
-#include "libplacebo/shaders/sampling.h"
 #include "libplacebo/utils/upload.h"
 #include "libplacebo/vulkan.h"
-
-#include "../libp2p/p2p_api.h"
+#include "libp2p/p2p_api.h"
 
 typedef  struct {
     VSNodeRef *node;
