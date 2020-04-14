@@ -122,7 +122,7 @@ static const VSFrameRef *VS_CC DebandGetFrame(int n, int activationReason, void 
 
         VSFrameRef *dst = vsapi->newVideoFrame(d->vi->format, iw, ih, frame, core);
 
-        for (unsigned int i=0; i<3; i++) {
+        for (unsigned int i=0; i<d->vi->format->numPlanes; i++) {
             if (!((1u << i) & d->planes))
                 vs_bitblt(vsapi->getWritePtr(dst, i), vsapi->getStride(dst, i), vsapi->getWritePtr(frame, i),
                           vsapi->getStride(frame, i), ((unsigned int) iw >> (unsigned int) d->vi->format->subSamplingW) * d->vi->format->bytesPerSample,
