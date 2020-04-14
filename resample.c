@@ -25,6 +25,7 @@ bool do_plane_R(struct priv *p, void* data, int w, int h)
     RData* d = (RData*) data;
 //    pl_shader_sample_bicubic(sh, &(struct pl_sample_src){ .tex = p->tex_in[0], .new_h = h, .new_w = w});
 //    if (d->sampleParams->filter.polar)
+
     if (!pl_shader_sample_polar(sh, &(struct pl_sample_src){ .tex = p->tex_in[0], .new_h = h, .new_w = w},
             &(struct pl_sample_filter_params) {.filter = pl_filter_ewa_lanczos, .lut = &lut, .no_compute = false, .no_widening = false}))
         printf("Failed dispatching scaler...");
@@ -63,6 +64,7 @@ bool reconfig_R(void *priv, struct pl_plane_data *data, int w, int h)
             .format = fmt,
             .renderable = true,
             .host_readable = true,
+            .storable = true,
     });
 
     if (!ok) {
