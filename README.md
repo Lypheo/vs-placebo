@@ -26,6 +26,8 @@ For example, to map from [BT.2020, PQ\] (HDR) to traditional [BT.709, BT.1886\] 
 - ``tone_mapping_algo, tone_mapping_param, desaturation_strength, desaturation_exponent, desaturation_base, max_boost, gamut_warning``:
  [Color mapping params](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L199).
 
-#### ``placebo.Resample``
+#### ``placebo.Resample(clip clip[, int width, int height, string filter = "ewa_lanczos", float sx = 0.0, float sy = 0.0, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001])``
 
-Coming soon™.
+- ``filter``: See [the header](https://github.com/haasn/libplacebo/blob/210131146739e4e84d689f32c17a97b27a6550bd/src/include/libplacebo/filters.h#L187) for possible values (remove the “pl_filter” before the filter name, e.g. ``filter="lanczos"``).
+Advanced configuration can be added on request.
+- ``sx``, ``sy``: subpixel shifts

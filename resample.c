@@ -16,38 +16,51 @@ typedef struct {
     int height;
     struct pl_sample_filter_params *sampleParams;
     struct pl_shader_obj *lut;
+    float shift_x;
+    float shift_y;
 } RData;
 
-bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi)
+bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, float sx, float sy)
 {
+    RData* d = (RData*) data;
     struct pl_shader *sh = pl_dispatch_begin(p->dp);
     const struct pl_tex *sep_fbo = NULL;
-    struct pl_sample_src src = (struct pl_sample_src){ .tex = p->tex_in[0], .new_h = h, .new_w = w};
-    RData* d = (RData*) data;
+    struct pl_sample_src src = (struct pl_sample_src){ .tex = p->tex_in[0], .new_h = h, .new_w = w,
+                                .rect = {
+                                    -sx,
+                                    -sy,
+                                    p->tex_in[0]->params.w - sx,
+                                    p->tex_in[0]->params.h - sy,
+                                }
+                            };
     struct pl_sample_filter_params sampleFilterParams = *d->sampleParams;
     sampleFilterParams.lut = &d->lut;
+
     if (d->sampleParams->filter.polar) {
         if (!pl_shader_sample_polar(sh, &src, &sampleFilterParams))
             vsapi->logMessage(mtCritical, "Failed dispatching scaler...\n");
     } else {
         struct pl_shader *tsh = pl_dispatch_begin_ex(p->dp, true);
+
         if (!pl_shader_sample_ortho(tsh, PL_SEP_VERT, &src, &sampleFilterParams)) {
-            vsapi->logMessage(mtCritical, "Failed vertical pass!\n");
+            vsapi->logMessage(mtCritical, "Failed dispatching vertical pass!\n");
             pl_dispatch_abort(p->dp, &tsh);
         }
+
         struct pl_sample_src src2 = src;
         struct pl_tex_params tex_params = {.w = src.tex->params.w, .h = src.new_h, .renderable = true, .sampleable = true, .format = src.tex->params.format, .sample_mode = PL_TEX_SAMPLE_LINEAR};
-        if (!pl_tex_recreate(p->gpu, &sep_fbo, &tex_params)) {
+
+        if (!pl_tex_recreate(p->gpu, &sep_fbo, &tex_params))
             vsapi->logMessage(mtCritical, "failed creating intermediate texture!\n");
-        }
+
         src2.tex = sep_fbo;
         if (!pl_dispatch_finish(p->dp, &tsh, sep_fbo, NULL, NULL)) {
-            vsapi->logMessage(mtCritical, "Failed dispatching intermediate pass! \n");
+            vsapi->logMessage(mtCritical, "Failed rendering vertical pass! \n");
             return false;
         }
-        if (!pl_shader_sample_ortho(sh, PL_SEP_HORIZ, &src2, &sampleFilterParams)){
-            vsapi->logMessage(mtCritical, "Failed horizontal pass! \n");
-        }
+
+        if (!pl_shader_sample_ortho(sh, PL_SEP_HORIZ, &src2, &sampleFilterParams))
+            vsapi->logMessage(mtCritical, "Failed dispatching horizontal pass! \n");
     }
     bool ok = pl_dispatch_finish(p->dp, &sh, p->tex_out[0], NULL, NULL);
     pl_tex_destroy(p->gpu, &sep_fbo);
@@ -91,7 +104,7 @@ bool reconfig_R(void *priv, struct pl_plane_data *data, int w, int h, const VSAP
     return true;
 }
 
-bool filter_R(void *priv, void *dst, struct pl_plane_data *src, void* d, int w, int h, int dst_stride, const VSAPI *vsapi)
+bool filter_R(void *priv, void *dst, struct pl_plane_data *src, void* d, int w, int h, int dst_stride, const VSAPI *vsapi, float sx, float sy)
 {
     struct priv *p = priv;
 
@@ -108,7 +121,7 @@ bool filter_R(void *priv, void *dst, struct pl_plane_data *src, void* d, int w, 
         return false;
     }
     // Process plane
-    if (!do_plane_R(p, d, w, h, vsapi)) {
+    if (!do_plane_R(p, d, w, h, vsapi, sx, sy)) {
         vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
@@ -159,9 +172,13 @@ static const VSFrameRef *VS_CC ResampleGetFrame(int n, int activationReason, voi
                     .component_map[0] = 0,
             };
 
+            float subsampling_shift = d->vi->format->subSamplingW == 1 && d->vi->format->subSamplingH == 1 && (i == 1 || i == 2) ?
+                                      0.25f - 0.25f * (float) d->vi->width/ (float) d->width : 0.f; // FIXME: support other subsampling ratios as well
+            float sx = subsampling_shift + d->shift_x * vsapi->getFrameWidth(frame, i)/d->vi->width;
+            float sy = d->shift_y * vsapi->getFrameHeight(frame, i)/d->vi->height;
             int w = vsapi->getFrameWidth(dst, i), h = vsapi->getFrameHeight(dst, i);
             if (reconfig_R(d->vf, &plane, w, h, vsapi))
-                filter_R(d->vf, vsapi->getWritePtr(dst, i), &plane, d, w, h, vsapi->getStride(dst, i) / d->vi->format->bytesPerSample, vsapi);
+                filter_R(d->vf, vsapi->getWritePtr(dst, i), &plane, d, w, h, vsapi->getStride(dst, i) / d->vi->format->bytesPerSample, vsapi, sx, sy);
 
         }
 
@@ -203,6 +220,10 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     d.height = vsapi->propGetInt(in, "height", 0, &err);
     if (err)
         d.height = d.vi->height;
+
+    d.shift_x = vsapi->propGetFloat(in, "sx", 0, &err);
+    d.shift_y = vsapi->propGetFloat(in, "sy", 0, &err);
+
 
     struct pl_sample_filter_params *sampleFilterParams = malloc(sizeof(struct pl_sample_filter_params));;
 

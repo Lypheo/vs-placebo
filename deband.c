@@ -15,18 +15,37 @@ typedef struct {
     int dither;
     struct pl_dither_params *ditherParams;
     struct pl_deband_params *debandParams;
+    int renderer;
 } MData;
 
 bool do_plane(struct priv *p, void* data)
 {
-    struct pl_shader *sh = pl_dispatch_begin(p->dp);
     MData* d = (MData*) data;
-    int new_depth = p->tex_out[0]->params.format->component_depth[0];
-    pl_shader_deband(sh, &(struct pl_sample_src){ .tex = p->tex_in[0]},
-                     d->debandParams);
-    if (d->dither)
-        pl_shader_dither(sh, new_depth, &p->dither_state, d->ditherParams);
-    return pl_dispatch_finish(p->dp, &sh, p->tex_out[0], NULL, NULL);
+
+    if (!d->renderer) {
+        struct pl_shader *sh = pl_dispatch_begin(p->dp);
+        int new_depth = p->tex_out[0]->params.format->component_depth[0];
+        pl_shader_deband(sh, &(struct pl_sample_src) {.tex = p->tex_in[0]},
+                         d->debandParams);
+        if (d->dither)
+            pl_shader_dither(sh, new_depth, &p->dither_state, d->ditherParams);
+        return pl_dispatch_finish(p->dp, &sh, p->tex_out[0], NULL, NULL);
+    } else {
+        struct pl_plane plane = (struct pl_plane) {.texture = p->tex_in[0], .components = 1, .component_mapping[0] = 0};
+
+        struct pl_color_repr crpr = {.bits = {.sample_depth = d->vi->format->bytesPerSample * 8, .color_depth =
+        d->vi->format->bytesPerSample * 8, .bit_shift = 0},
+                .levels = PL_COLOR_LEVELS_UNKNOWN, .alpha = PL_ALPHA_UNKNOWN, .sys = PL_COLOR_SYSTEM_UNKNOWN};
+
+        struct pl_image img = {.num_planes = 1, .width = d->vi->width, .height = d->vi->height,
+                .planes[0] = plane,
+                .repr = crpr, .color = (struct pl_color_space) {0}};
+        struct pl_render_target out = {.color = (struct pl_color_space) {0}, .repr = crpr, .fbo = p->tex_out[0]};
+        struct pl_render_params par = pl_render_default_params;
+        par.skip_redraw_caching = true;
+        par.deband_params = d->debandParams;
+        return pl_render_image(p->rr, &img, &out, &par);
+    }
 }
 
 bool reconfig(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
@@ -120,14 +139,18 @@ static const VSFrameRef *VS_CC DebandGetFrame(int n, int activationReason, void 
         int ih = vsapi->getFrameHeight(frame, 0);
         int iw = vsapi->getFrameWidth(frame, 0);
 
+        int copy[3];
+        for (unsigned int j = 0; j < 3; ++j)
+            copy[j] = ((1u << j) & d->planes) == 0;
+
         VSFrameRef *dst = vsapi->newVideoFrame(d->vi->format, iw, ih, frame, core);
 
-        for (unsigned int i=0; i<d->vi->format->numPlanes; i++) {
-            if (!((1u << i) & d->planes))
+        for (int i=0; i<d->vi->format->numPlanes; i++) {
+            if (copy[i]) {
                 vs_bitblt(vsapi->getWritePtr(dst, i), vsapi->getStride(dst, i), vsapi->getWritePtr(frame, i),
-                          vsapi->getStride(frame, i), ((unsigned int) iw >> (unsigned int) d->vi->format->subSamplingW) * d->vi->format->bytesPerSample,
+                          vsapi->getStride(frame, i), vsapi->getFrameWidth(dst, i) * d->vi->format->bytesPerSample,
                           vsapi->getFrameHeight(dst, i));
-            else {
+            } else {
                 struct pl_plane_data plane = {
                         .type = PL_FMT_UNORM,
                         .width = vsapi->getFrameWidth(frame, i),
@@ -176,6 +199,7 @@ void VS_CC DebandCreate(const VSMap *in, VSMap *out, void *userData, VSCore *cor
 
     d.vf = init();
 
+    d.renderer = vsapi->propGetInt(in, "renderer_api", 0, &err);
     d.dither = vsapi->propGetInt(in, "dither", 0, &err);
     if (err)
         d.dither = 1;
