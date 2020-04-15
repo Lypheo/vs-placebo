@@ -31,7 +31,7 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
                                     -sy,
                                     p->tex_in[0]->params.w - sx,
                                     p->tex_in[0]->params.h - sy,
-                                }
+                                    }
                             };
     struct pl_sample_filter_params sampleFilterParams = *d->sampleParams;
     sampleFilterParams.lut = &d->lut;
