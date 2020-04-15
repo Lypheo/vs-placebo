@@ -19,7 +19,7 @@ Performs color mapping (which includes tonemapping from HDR to SDR, but can do a
 
 - ``srcp, srct, srcl, dstp, dstt, dstl, src_peak, src_avg, src_scale, dst_peak, dst_avg, dst_scale``:
 See the [documentation](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/colorspace.h#L244) in the header file.
-For example, to map from [BT.2020, PQ\] (HDR) to traditional [BT.709, BT.1886\] (SDR), pass ``srcp=5, dstp=2, srct=8, dstt=1``. 
+For example, to map from [BT.2020, PQ\] (HDR) to traditional [BT.709, BT.1886\] (SDR), pass ``srcp=5, dstp=3, srct=8, dstt=1``. 
 (If you want equivalent output to mpv, pass ``dstt=0``.)  
 - ``dynamic_peak_detection``: enables computation of signal stats to optimize HDR tonemapping quality. Enabled by default.
 - ``smoothing_period, scene_threshold_low, scene_threshold_high``: peak detection params. See [here](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L85).
