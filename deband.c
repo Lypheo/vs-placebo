@@ -18,7 +18,7 @@ typedef struct {
     int renderer;
 } MData;
 
-bool do_plane(struct priv *p, void* data)
+bool do_plane(struct priv *p, void* data, int chroma)
 {
     MData* d = (MData*) data;
 
@@ -37,7 +37,7 @@ bool do_plane(struct priv *p, void* data)
         d->vi->format->bytesPerSample * 8, .bit_shift = 0},
                 .levels = PL_COLOR_LEVELS_UNKNOWN, .alpha = PL_ALPHA_UNKNOWN, .sys = PL_COLOR_SYSTEM_UNKNOWN};
 
-        struct pl_image img = {.num_planes = 1, .width = d->vi->width, .height = d->vi->height,
+        struct pl_image img = {.num_planes = 1, .width = d->vi->width >> (chroma ? d->vi->format->subSamplingW : 0), .height = d->vi->height >> (chroma ? d->vi->format->subSamplingH : 0),
                 .planes[0] = plane,
                 .repr = crpr, .color = (struct pl_color_space) {0}};
         struct pl_render_target out = {.color = (struct pl_color_space) {0}, .repr = crpr, .fbo = p->tex_out[0]};
@@ -84,7 +84,7 @@ bool reconfig(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
     return true;
 }
 
-bool filter(void *priv, void *dst, struct pl_plane_data *src, void* d, const VSAPI *vsapi)
+bool filter(void *priv, void *dst, struct pl_plane_data *src, void* d, const VSAPI *vsapi, int chroma)
 {
     struct priv *p = priv;
 
@@ -102,7 +102,7 @@ bool filter(void *priv, void *dst, struct pl_plane_data *src, void* d, const VSA
     }
 
     // Process plane
-    if (!do_plane(p, d)) {
+    if (!do_plane(p, d, chroma)) {
         vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
@@ -164,7 +164,7 @@ static const VSFrameRef *VS_CC DebandGetFrame(int n, int activationReason, void 
                 };
 
                 if (reconfig(d->vf, &plane, vsapi))
-                    filter(d->vf, vsapi->getWritePtr(dst, i), &plane, d, vsapi);
+                    filter(d->vf, vsapi->getWritePtr(dst, i), &plane, d, vsapi, i != 0);
             }
         }
 
