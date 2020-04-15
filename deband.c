@@ -29,13 +29,13 @@ bool do_plane(struct priv *p, void* data)
     return pl_dispatch_finish(p->dp, &sh, p->tex_out[0], NULL, NULL);
 }
 
-bool reconfig(void *priv, struct pl_plane_data *data)
+bool reconfig(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
 {
     struct priv *p = priv;
 
     const struct pl_fmt *fmt = pl_plane_find_fmt(p->gpu, NULL, data);
     if (!fmt) {
-        fprintf(stderr, "Failed configuring filter: no good texture format!\n");
+        vsapi->logMessage(mtCritical, "Failed configuring filter: no good texture format!\n");
         return false;
     }
 
@@ -58,14 +58,14 @@ bool reconfig(void *priv, struct pl_plane_data *data)
     });
 
     if (!ok) {
-        fprintf(stderr, "Failed creating GPU textures!\n");
+        vsapi->logMessage(mtCritical, "Failed creating GPU textures!\n");
         return false;
     }
 
     return true;
 }
 
-bool filter(void *priv, void *dst, struct pl_plane_data *src, void* d)
+bool filter(void *priv, void *dst, struct pl_plane_data *src, void* d, const VSAPI *vsapi)
 {
     struct priv *p = priv;
 
@@ -78,13 +78,13 @@ bool filter(void *priv, void *dst, struct pl_plane_data *src, void* d)
     });
 
     if (!ok) {
-        fprintf(stderr, "Failed uploading data to the GPU!\n");
+        vsapi->logMessage(mtCritical, "Failed uploading data to the GPU!\n");
         return false;
     }
 
     // Process plane
     if (!do_plane(p, d)) {
-        fprintf(stderr, "Failed processing planes!\n");
+        vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
 
@@ -96,7 +96,7 @@ bool filter(void *priv, void *dst, struct pl_plane_data *src, void* d)
     });
 
     if (!ok) {
-        fprintf(stderr, "Failed downloading data from the GPU!\n");
+        vsapi->logMessage(mtCritical, "Failed downloading data from the GPU!\n");
         return false;
     }
 
@@ -140,8 +140,8 @@ static const VSFrameRef *VS_CC DebandGetFrame(int n, int activationReason, void 
                         .component_map[0] = 0,
                 };
 
-                if (reconfig(d->vf, &plane))
-                    filter(d->vf, vsapi->getWritePtr(dst, i), &plane, d);
+                if (reconfig(d->vf, &plane, vsapi))
+                    filter(d->vf, vsapi->getWritePtr(dst, i), &plane, d, vsapi);
             }
         }
 
@@ -171,6 +171,7 @@ void VS_CC DebandCreate(const VSMap *in, VSMap *out, void *userData, VSCore *cor
 
     if ((d.vi->format->bitsPerSample != 8 && d.vi->format->bitsPerSample != 16) || d.vi->format->sampleType != stInteger) {
         vsapi->setError(out, "placebo.Deband: Input bitdepth should be 8 or 16!.");
+        vsapi->freeNode(d.node);
     }
 
     d.vf = init();

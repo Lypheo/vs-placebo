@@ -18,33 +18,49 @@ typedef struct {
     struct pl_shader_obj *lut;
 } RData;
 
-bool do_plane_R(struct priv *p, void* data, int w, int h)
+bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi)
 {
     struct pl_shader *sh = pl_dispatch_begin(p->dp);
-    struct pl_shader_obj *lut = NULL;
+    const struct pl_tex *sep_fbo = NULL;
+    struct pl_sample_src src = (struct pl_sample_src){ .tex = p->tex_in[0], .new_h = h, .new_w = w};
     RData* d = (RData*) data;
-//    pl_shader_sample_bicubic(sh, &(struct pl_sample_src){ .tex = p->tex_in[0], .new_h = h, .new_w = w});
-//    if (d->sampleParams->filter.polar)
-
-    if (!pl_shader_sample_polar(sh, &(struct pl_sample_src){ .tex = p->tex_in[0], .new_h = h, .new_w = w},
-            &(struct pl_sample_filter_params) {.filter = pl_filter_ewa_lanczos, .lut = &lut, .no_compute = false, .no_widening = false}))
-        printf("Failed dispatching scaler...");
-//    else {
-//        pl_shader_sample_ortho(sh, 0, &(struct pl_sample_src) {.tex = p->tex_in[0], .new_h = h, .new_w = w},
-//                               d->sampleParams);
-//        pl_shader_sample_ortho(sh, 1, &(struct pl_sample_src) {.tex = p->tex_in[0], .new_h = h, .new_w = w},
-//                               d->sampleParams);
-//    }
-    return pl_dispatch_finish(p->dp, &sh, p->tex_out[0], NULL, NULL);
+    struct pl_sample_filter_params sampleFilterParams = *d->sampleParams;
+    sampleFilterParams.lut = &d->lut;
+    if (d->sampleParams->filter.polar) {
+        if (!pl_shader_sample_polar(sh, &src, &sampleFilterParams))
+            vsapi->logMessage(mtCritical, "Failed dispatching scaler...\n");
+    } else {
+        struct pl_shader *tsh = pl_dispatch_begin_ex(p->dp, true);
+        if (!pl_shader_sample_ortho(tsh, PL_SEP_VERT, &src, &sampleFilterParams)) {
+            vsapi->logMessage(mtCritical, "Failed vertical pass!\n");
+            pl_dispatch_abort(p->dp, &tsh);
+        }
+        struct pl_sample_src src2 = src;
+        struct pl_tex_params tex_params = {.w = src.tex->params.w, .h = src.new_h, .renderable = true, .sampleable = true, .format = src.tex->params.format, .sample_mode = PL_TEX_SAMPLE_LINEAR};
+        if (!pl_tex_recreate(p->gpu, &sep_fbo, &tex_params)) {
+            vsapi->logMessage(mtCritical, "failed creating intermediate texture!\n");
+        }
+        src2.tex = sep_fbo;
+        if (!pl_dispatch_finish(p->dp, &tsh, sep_fbo, NULL, NULL)) {
+            vsapi->logMessage(mtCritical, "Failed dispatching intermediate pass! \n");
+            return false;
+        }
+        if (!pl_shader_sample_ortho(sh, PL_SEP_HORIZ, &src2, &sampleFilterParams)){
+            vsapi->logMessage(mtCritical, "Failed horizontal pass! \n");
+        }
+    }
+    bool ok = pl_dispatch_finish(p->dp, &sh, p->tex_out[0], NULL, NULL);
+    pl_tex_destroy(p->gpu, &sep_fbo);
+    return ok;
 }
 
-bool reconfig_R(void *priv, struct pl_plane_data *data, int w, int h)
+bool reconfig_R(void *priv, struct pl_plane_data *data, int w, int h, const VSAPI *vsapi)
 {
     struct priv *p = priv;
 
     const struct pl_fmt *fmt = pl_plane_find_fmt(p->gpu, NULL, data);
     if (!fmt) {
-        fprintf(stderr, "Failed configuring filter: no good texture format!\n");
+        vsapi->logMessage(mtCritical, "Failed configuring filter: no good texture format!\n");
         return false;
     }
 
@@ -68,14 +84,14 @@ bool reconfig_R(void *priv, struct pl_plane_data *data, int w, int h)
     });
 
     if (!ok) {
-        fprintf(stderr, "Failed creating GPU textures!\n");
+        vsapi->logMessage(mtCritical, "Failed creating GPU textures!\n");
         return false;
     }
 
     return true;
 }
 
-bool filter_R(void *priv, void *dst, struct pl_plane_data *src, void* d, int w, int h, int dst_stride)
+bool filter_R(void *priv, void *dst, struct pl_plane_data *src, void* d, int w, int h, int dst_stride, const VSAPI *vsapi)
 {
     struct priv *p = priv;
 
@@ -88,12 +104,12 @@ bool filter_R(void *priv, void *dst, struct pl_plane_data *src, void* d, int w, 
     });
 
     if (!ok) {
-        fprintf(stderr, "Failed uploading data to the GPU!\n");
+        vsapi->logMessage(mtCritical, "Failed uploading data to the GPU!\n");
         return false;
     }
     // Process plane
-    if (!do_plane_R(p, d, w, h)) {
-        fprintf(stderr, "Failed processing planes!\n");
+    if (!do_plane_R(p, d, w, h, vsapi)) {
+        vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
 
@@ -105,7 +121,7 @@ bool filter_R(void *priv, void *dst, struct pl_plane_data *src, void* d, int w, 
     });
 
     if (!ok) {
-        fprintf(stderr, "Failed downloading data from the GPU!\n");
+        vsapi->logMessage(mtCritical, "Failed downloading data from the GPU!\n");
         return false;
     }
 
@@ -144,8 +160,8 @@ static const VSFrameRef *VS_CC ResampleGetFrame(int n, int activationReason, voi
             };
 
             int w = vsapi->getFrameWidth(dst, i), h = vsapi->getFrameHeight(dst, i);
-            if (reconfig_R(d->vf, &plane, w, h))
-                filter_R(d->vf, vsapi->getWritePtr(dst, i), &plane, d, w, h, vsapi->getStride(dst, i) / d->vi->format->bytesPerSample);
+            if (reconfig_R(d->vf, &plane, w, h, vsapi))
+                filter_R(d->vf, vsapi->getWritePtr(dst, i), &plane, d, w, h, vsapi->getStride(dst, i) / d->vi->format->bytesPerSample, vsapi);
 
         }
 
@@ -159,8 +175,9 @@ static const VSFrameRef *VS_CC ResampleGetFrame(int n, int activationReason, voi
 static void VS_CC ResampleFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
     RData *d = (RData *)instanceData;
     vsapi->freeNode(d->node);
-    uninit(d->vf);
+    pl_shader_obj_destroy(&d->lut);
     free(d->sampleParams);
+    uninit(d->vf);
     free(d);
 }
 
@@ -173,7 +190,8 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     d.vi = vsapi->getVideoInfo(d.node);
 
     if ((d.vi->format->bitsPerSample != 8 && d.vi->format->bitsPerSample != 16) || d.vi->format->sampleType != stInteger) {
-        vsapi->setError(out, "placebo.Deband: Input bitdepth should be 8 or 16!.");
+        vsapi->setError(out, "placebo.Rsample: Input bitdepth should be 8 or 16!.");
+        vsapi->freeNode(d.node);
     }
 
     d.vf = init();
@@ -187,8 +205,10 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
         d.height = d.vi->height;
 
     struct pl_sample_filter_params *sampleFilterParams = malloc(sizeof(struct pl_sample_filter_params));;
-    sampleFilterParams->lut = NULL;
 
+    d.lut = NULL;
+    sampleFilterParams->no_widening = false;
+    sampleFilterParams->no_compute = false;
     sampleFilterParams->lut_entries = vsapi->propGetInt(in, "lut_entries", 0, &err);
     sampleFilterParams->cutoff = vsapi->propGetFloat(in, "cutoff", 0, &err);
     sampleFilterParams->antiring = vsapi->propGetFloat(in, "antiring", 0, &err);
@@ -217,7 +237,7 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     FILTER_ELIF(ewa_lanczos)
     FILTER_ELIF(ewa_robidouxsharp)
     else {
-        printf("Unkown filter... selecting ewa_lanczos.");
+        vsapi->logMessage(mtWarning, "Unkown filter... selecting ewa_lanczos.\n");
         sampleFilterParams->filter = pl_filter_ewa_lanczos;
     }
 

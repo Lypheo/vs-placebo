@@ -35,13 +35,13 @@ bool do_plane_TM(struct priv *p, void* data, int n)
     return pl_render_image(p->rr, &img, &out, d->renderParams);
 }
 
-bool config_TM(void *priv, struct pl_plane_data *data)
+bool config_TM(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
 {
     struct priv *p = priv;
 
     const struct pl_fmt *fmt = pl_plane_find_fmt(p->gpu, NULL, &data[0]);
     if (!fmt) {
-        fprintf(stderr, "Failed configuring filter: no good texture format!\n");
+        vsapi->logMessage(mtCritical, "Failed configuring filter: no good texture format!\n");
         return false;
     }
 
@@ -72,14 +72,14 @@ bool config_TM(void *priv, struct pl_plane_data *data)
     });
 
     if (!ok) {
-        fprintf(stderr, "Failed creating GPU textures!\n");
+        vsapi->logMessage(mtCritical, "Failed creating GPU textures!\n");
         return false;
     }
 
     return true;
 }
 
-bool filter_TM(void *priv, void *dst, struct pl_plane_data *src, void* d, int n)
+bool filter_TM(void *priv, void *dst, struct pl_plane_data *src, void* d, int n, const VSAPI *vsapi)
 {
     struct priv *p = priv;
 
@@ -93,13 +93,13 @@ bool filter_TM(void *priv, void *dst, struct pl_plane_data *src, void* d, int n)
         });
     }
     if (!ok) {
-        fprintf(stderr, "Failed uploading data to the GPU!\n");
+        vsapi->logMessage(mtCritical, "Failed uploading data to the GPU!\n");
         return false;
     }
 
     // Process plane
     if (!do_plane_TM(p, d, n)) {
-        fprintf(stderr, "Failed processing planes!\n");
+        vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
 
@@ -111,7 +111,7 @@ bool filter_TM(void *priv, void *dst, struct pl_plane_data *src, void* d, int n)
     });
 
     if (!ok) {
-        fprintf(stderr, "Failed downloading data from the GPU!\n");
+        vsapi->logMessage(mtCritical, "Failed downloading data from the GPU!\n");
         return false;
     }
 
@@ -156,8 +156,8 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
 
         void * packed_dst = malloc(iw*ih*2*3);
 
-        if (config_TM(d->vf, planes))
-            filter_TM(d->vf, packed_dst, planes, d, n);
+        if (config_TM(d->vf, planes, vsapi))
+            filter_TM(d->vf, packed_dst, planes, d, n, vsapi);
 
         struct p2p_buffer_param pack_params = {};
         pack_params.width = iw; pack_params.height = ih;
@@ -210,7 +210,7 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
 #define COLORM_PARAM(par, type) colorMapParams->par = vsapi->propGet##type(in, #par, 0, &err); \
         if (err) colorMapParams->par = pl_color_map_default_params.par;
 
-    COLORM_PARAM(tone_mapping_algo, Float)
+    COLORM_PARAM(tone_mapping_algo, Int)
     COLORM_PARAM(desaturation_base, Float)
     COLORM_PARAM(desaturation_strength, Float)
     COLORM_PARAM(desaturation_exponent, Float)
