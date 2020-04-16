@@ -172,9 +172,9 @@ static const VSFrameRef *VS_CC ResampleGetFrame(int n, int activationReason, voi
                     .component_map[0] = 0,
             };
 
-            float subsampling_shift = d->vi->format->subSamplingW == 1 && d->vi->format->subSamplingH == 1 && (i == 1 || i == 2) ?
-                                      0.25f - 0.25f * (float) d->vi->width/ (float) d->width : 0.f; // FIXME: support other subsampling ratios as well
-            float sx = subsampling_shift + d->shift_x * vsapi->getFrameWidth(frame, i)/d->vi->width;
+            int shift = d->vi->format->colorFamily == cmYUV && d->vi->format->subSamplingW == 1 && d->vi->format->subSamplingH == 1 && (i == 1 || i == 2);
+            float subsampling_shift = 0.25f - 0.25f * (float) d->vi->width/ (float) d->width; // FIXME: support other subsampling ratios and chroma locations as well
+            float sx = (shift ? subsampling_shift : 0.f) + d->shift_x * vsapi->getFrameWidth(frame, i)/d->vi->width;
             float sy = d->shift_y * vsapi->getFrameHeight(frame, i)/d->vi->height;
             int w = vsapi->getFrameWidth(dst, i), h = vsapi->getFrameHeight(dst, i);
             if (reconfig_R(d->vf, &plane, w, h, vsapi))
