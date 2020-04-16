@@ -40,7 +40,7 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
         if (!pl_shader_sample_polar(sh, &src, &sampleFilterParams))
             vsapi->logMessage(mtCritical, "Failed dispatching scaler...\n");
     } else {
-        struct pl_shader *tsh = pl_dispatch_begin_ex(p->dp, true);
+        struct pl_shader *tsh = pl_dispatch_begin(p->dp);
 
         if (!pl_shader_sample_ortho(tsh, PL_SEP_VERT, &src, &sampleFilterParams)) {
             vsapi->logMessage(mtCritical, "Failed dispatching vertical pass!\n");
