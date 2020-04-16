@@ -23,14 +23,17 @@ bool do_plane(struct priv *p, void* data, int chroma)
     MData* d = (MData*) data;
 
     if (!d->renderer) {
+
         struct pl_shader *sh = pl_dispatch_begin(p->dp);
         int new_depth = p->tex_out[0]->params.format->component_depth[0];
         pl_shader_deband(sh, &(struct pl_sample_src) {.tex = p->tex_in[0]},
                          d->debandParams);
-        if (d->dither)
+        if (d->dither && d->vi->format->sampleType != stFloat)
             pl_shader_dither(sh, new_depth, &p->dither_state, d->ditherParams);
         return pl_dispatch_finish(p->dp, &sh, p->tex_out[0], NULL, NULL);
+
     } else {
+
         struct pl_plane plane = (struct pl_plane) {.texture = p->tex_in[0], .components = 1, .component_mapping[0] = 0};
 
         struct pl_color_repr crpr = {.bits = {.sample_depth = d->vi->format->bytesPerSample * 8, .color_depth =
@@ -45,6 +48,7 @@ bool do_plane(struct priv *p, void* data, int chroma)
         par.skip_redraw_caching = true;
         par.deband_params = d->debandParams;
         return pl_render_image(p->rr, &img, &out, &par);
+
     }
 }
 
@@ -152,7 +156,7 @@ static const VSFrameRef *VS_CC DebandGetFrame(int n, int activationReason, void 
                           vsapi->getFrameHeight(dst, i));
             } else {
                 struct pl_plane_data plane = {
-                        .type = PL_FMT_UNORM,
+                        .type = d->vi->format->sampleType == stInteger ? PL_FMT_UNORM : PL_FMT_FLOAT,
                         .width = vsapi->getFrameWidth(frame, i),
                         .height = vsapi->getFrameHeight(frame, i),
                         .pixel_stride = 1 /* components */ * d->vi->format->bytesPerSample /* bytes per sample*/,
@@ -192,8 +196,8 @@ void VS_CC DebandCreate(const VSMap *in, VSMap *out, void *userData, VSCore *cor
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
 
-    if ((d.vi->format->bitsPerSample != 8 && d.vi->format->bitsPerSample != 16) || d.vi->format->sampleType != stInteger) {
-        vsapi->setError(out, "placebo.Deband: Input bitdepth should be 8 or 16!.");
+    if ((d.vi->format->bitsPerSample != 8 && d.vi->format->bitsPerSample != 16 && d.vi->format->bitsPerSample != 32)) {
+        vsapi->setError(out, "placebo.Deband: Input bitdepth should be 8, 16 (Integer) or 32 (Float)!.");
         vsapi->freeNode(d.node);
     }
 

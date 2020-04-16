@@ -161,7 +161,7 @@ static const VSFrameRef *VS_CC ResampleGetFrame(int n, int activationReason, voi
 
         for (unsigned int i=0; i < d->vi->format->numPlanes; i++) {
             struct pl_plane_data plane = {
-                    .type = PL_FMT_UNORM,
+                    .type = d->vi->format->sampleType == stInteger ? PL_FMT_UNORM : PL_FMT_FLOAT,
                     .width = vsapi->getFrameWidth(frame, i),
                     .height = vsapi->getFrameHeight(frame, i),
                     .pixel_stride = 1 /* components */ * d->vi->format->bytesPerSample /* bytes per sample*/,
@@ -193,6 +193,7 @@ static void VS_CC ResampleFree(void *instanceData, VSCore *core, const VSAPI *vs
     RData *d = (RData *)instanceData;
     vsapi->freeNode(d->node);
     pl_shader_obj_destroy(&d->lut);
+    free(d->sampleParams->filter.kernel);
     free(d->sampleParams);
     uninit(d->vf);
     free(d);
@@ -206,8 +207,8 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
 
-    if ((d.vi->format->bitsPerSample != 8 && d.vi->format->bitsPerSample != 16) || d.vi->format->sampleType != stInteger) {
-        vsapi->setError(out, "placebo.Rsample: Input bitdepth should be 8 or 16!.");
+    if ((d.vi->format->bitsPerSample != 8 && d.vi->format->bitsPerSample != 16 && d.vi->format->bitsPerSample != 32)) {
+        vsapi->setError(out, "placebo.Rsample: Input bitdepth should be 8, 16 (Integer) or 32 (Float)!.");
         vsapi->freeNode(d.node);
     }
 
@@ -261,6 +262,24 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
         vsapi->logMessage(mtWarning, "Unkown filter... selecting ewa_lanczos.\n");
         sampleFilterParams->filter = pl_filter_ewa_lanczos;
     }
+    sampleFilterParams->filter.clamp = vsapi->propGetFloat(in, "clamp", 0, &err);
+    sampleFilterParams->filter.blur = vsapi->propGetFloat(in, "blur", 0, &err);
+    sampleFilterParams->filter.taper = vsapi->propGetFloat(in, "taper", 0, &err);
+    struct pl_filter_function *f = malloc(sizeof(struct pl_filter_function));
+    *f = *sampleFilterParams->filter.kernel;
+    if (f->resizable) {
+        vsapi->propGetFloat(in, "radius", 0, &err);
+        if (!err)
+            f->radius = vsapi->propGetFloat(in, "radius", 0, &err);
+    }
+    vsapi->propGetFloat(in, "param0", 0, &err);
+    if (!err)
+        f->params[0] = vsapi->propGetFloat(in, "param0", 0, &err);
+    vsapi->propGetFloat(in, "param1", 0, &err);
+    if (!err)
+        f->params[1] = vsapi->propGetFloat(in, "param1", 0, &err);
+    sampleFilterParams->filter.kernel = f;
+
 
     d.sampleParams = sampleFilterParams;
     data = malloc(sizeof(d));

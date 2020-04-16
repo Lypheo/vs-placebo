@@ -3,7 +3,7 @@
 
 #### ``placebo.Deband(clip clip[, int planes = 1, int iterations = 1, float threshold = 4.0, float radius = 16.0, float grain = 6.0, int dither = True, int dither_algo = 0])``
 
-Input needs to be 8 or 16 bit.
+Input needs to be 8 or 16 bit Integer or 32 bit Float.
 
 - ``planes``: the planes to filter. The n-th plane is processed if the n-th lowest bit of ``planes`` is 1, so for example to filter all planes, pass ``planes = 1 | 2 | 4`` .
 (Yes, this is needlessly complex, but it was the simplest to implement.)
@@ -26,10 +26,15 @@ For example, to map from [BT.2020, PQ\] (HDR) to traditional [BT.709, BT.1886\] 
 - ``tone_mapping_algo, tone_mapping_param, desaturation_strength, desaturation_exponent, desaturation_base, max_boost, gamut_warning``:
  [Color mapping params](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L199).
 
-#### ``placebo.Resample(clip clip[, int width, int height, string filter = "ewa_lanczos", float sx = 0.0, float sy = 0.0, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001])``
+#### ``placebo.Resample(clip clip[, int width, int height, string filter = "ewa_lanczos", float radius, float clamp, float taper, float blur, float param0, float param1, float sx = 0.0, float sy = 0.0, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001])``
 **Don’t use with non-polar (i.e. not prefixed with “ewa\_”) filters!** Currently they output a slightly shifted image for unknown reasons
-(though only for large frames, which makes me suspect a libplacebo bug, but what do I know).   
+(though only for large frames, which makes me suspect a libplacebo bug, but what do I know).
+
+Input needs to be 8 or 16 bit Integer or 32 bit Float   
 
 - ``filter``: See [the header](https://github.com/haasn/libplacebo/blob/210131146739e4e84d689f32c17a97b27a6550bd/src/include/libplacebo/filters.h#L187) for possible values (remove the “pl_filter” before the filter name, e.g. ``filter="lanczos"``).
 Advanced configuration can be added on request.  
 - ``sx``, ``sy``: subpixel shifts
+- ``float clamp, float taper, float blur``: [Filter config](https://github.com/haasn/libplacebo/blob/885e89bccfb932d9e8c8659039ab6975e885e996/src/include/libplacebo/filters.h#L148).
+
+- ``float radius, float param0, float param1``: [Kernel config](https://github.com/haasn/libplacebo/blob/885e89bccfb932d9e8c8659039ab6975e885e996/src/include/libplacebo/filters.h#L30-L131).
