@@ -211,6 +211,7 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
         if (err) colorMapParams->par = pl_color_map_default_params.par;
 
     COLORM_PARAM(tone_mapping_algo, Int)
+    COLORM_PARAM(tone_mapping_param, Float)
     COLORM_PARAM(desaturation_base, Float)
     COLORM_PARAM(desaturation_strength, Float)
     COLORM_PARAM(desaturation_exponent, Float)
