@@ -28,7 +28,7 @@ bool do_plane(struct priv *p, void* data, int chroma)
         int new_depth = p->tex_out[0]->params.format->component_depth[0];
         pl_shader_deband(sh, &(struct pl_sample_src) {.tex = p->tex_in[0]},
                          d->debandParams);
-        if (d->dither && d->vi->format->sampleType != stFloat)
+        if (d->dither)
             pl_shader_dither(sh, new_depth, &p->dither_state, d->ditherParams);
         return pl_dispatch_finish(p->dp, &sh, p->tex_out[0], NULL, NULL);
 
@@ -47,6 +47,8 @@ bool do_plane(struct priv *p, void* data, int chroma)
         struct pl_render_params par = pl_render_default_params;
         par.skip_redraw_caching = true;
         par.deband_params = d->debandParams;
+        par.dither_params = d->dither ? d->ditherParams : NULL;
+
         return pl_render_image(p->rr, &img, &out, &par);
 
     }
@@ -204,9 +206,9 @@ void VS_CC DebandCreate(const VSMap *in, VSMap *out, void *userData, VSCore *cor
     d.vf = init();
 
     d.renderer = vsapi->propGetInt(in, "renderer_api", 0, &err);
-    d.dither = vsapi->propGetInt(in, "dither", 0, &err);
+    d.dither = vsapi->propGetInt(in, "dither", 0, &err) && d.vi->format->bitsPerSample == 8;
     if (err)
-        d.dither = 1;
+        d.dither = d.vi->format->bitsPerSample == 8;
 
     d.planes = (unsigned int) vsapi->propGetInt(in, "planes", 0, &err);
     if (err)

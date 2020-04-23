@@ -64,6 +64,23 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
     }
     bool ok = pl_dispatch_finish(p->dp, &sh, p->tex_out[0], NULL, NULL);
     pl_tex_destroy(p->gpu, &sep_fbo);
+
+//    struct pl_plane plane = (struct pl_plane) {.texture = p->tex_in[0], .components = 1, .component_mapping[0] = 0};
+//
+//    struct pl_color_repr crpr = {.bits = {.sample_depth = d->vi->format->bytesPerSample * 8, .color_depth =
+//    d->vi->format->bytesPerSample * 8, .bit_shift = 0},
+//            .levels = PL_COLOR_LEVELS_UNKNOWN, .alpha = PL_ALPHA_UNKNOWN, .sys = PL_COLOR_SYSTEM_UNKNOWN};
+//
+//    struct pl_image img = {.num_planes = 1, .width = d->vi->width, .height = d->vi->height,
+//            .planes[0] = plane,
+//            .repr = crpr, .color = (struct pl_color_space) {0}};
+//    struct pl_render_target out = {.color = (struct pl_color_space) {0}, .repr = crpr, .fbo = p->tex_out[0]};
+//    struct pl_render_params par = pl_render_default_params;
+//    par.skip_redraw_caching = true;
+//    par.downscaler = &d->sampleParams->filter;
+//    par.deband_params = NULL;
+//    return pl_render_image(p->rr, &img, &out, &par);
+
     return ok;
 }
 

@@ -8,7 +8,7 @@ Input needs to be 8 or 16 bit Integer or 32 bit Float.
 - ``planes``: the planes to filter. The n-th plane is processed if the n-th lowest bit of ``planes`` is 1, so for example to filter all planes, pass ``planes = 1 | 2 | 4`` .
 (Yes, this is needlessly complex, but it was the simplest to implement.)
 
-- ``dither``: whether the debanded frame should be dithered or rounded from float to the output bitdepth.
+- ``dither``: whether the debanded frame should be dithered or rounded from float to the output bitdepth. Only works for 8 bit.
 
 For details on the [debanding params](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/sampling.h#L39)
 and the [dither methods](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L275),
