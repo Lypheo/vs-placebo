@@ -16,8 +16,8 @@ typedef struct {
     int height;
     struct pl_sample_filter_params *sampleParams;
     struct pl_shader_obj *lut;
-    float shift_x;
-    float shift_y;
+    float src_x;
+    float src_y;
 } RData;
 
 bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, float sx, float sy)
@@ -27,10 +27,10 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
     const struct pl_tex *sep_fbo = NULL;
     struct pl_sample_src src = (struct pl_sample_src){ .tex = p->tex_in[0], .new_h = h, .new_w = w,
                                 .rect = {
-                                    -sx,
-                                    -sy,
-                                    p->tex_in[0]->params.w - sx,
-                                    p->tex_in[0]->params.h - sy,
+                                    sx,
+                                    sy,
+                                    p->tex_in[0]->params.w + sx,
+                                    p->tex_in[0]->params.h + sy,
                                     }
                             };
     struct pl_sample_filter_params sampleFilterParams = *d->sampleParams;
@@ -189,10 +189,10 @@ static const VSFrameRef *VS_CC ResampleGetFrame(int n, int activationReason, voi
                     .component_map[0] = 0,
             };
 
-            int shift = d->vi->format->colorFamily == cmYUV && d->vi->format->subSamplingW == 1 && d->vi->format->subSamplingH == 1 && (i == 1 || i == 2);
-            float subsampling_shift = 0.25f - 0.25f * (float) d->vi->width/ (float) d->width; // FIXME: support other subsampling ratios and chroma locations as well
-            float sx = (shift ? subsampling_shift : 0.f) + d->shift_x * vsapi->getFrameWidth(frame, i)/d->vi->width;
-            float sy = d->shift_y * vsapi->getFrameHeight(frame, i)/d->vi->height;
+            bool shift = d->vi->format->colorFamily == cmYUV && d->vi->format->subSamplingW == 1 && (i == 1 || i == 2);
+            float subsampling_shift = 0.25f - 0.25f * (float) d->vi->width / (float) d->width; // FIXME: support other subsampling ratios and chroma locations as well
+            float sx = (shift ? subsampling_shift : 0.f) + d->src_x * vsapi->getFrameWidth(frame, i)/d->vi->width;
+            float sy = d->src_y * vsapi->getFrameHeight(frame, i)/d->vi->height;
             int w = vsapi->getFrameWidth(dst, i), h = vsapi->getFrameHeight(dst, i);
             if (reconfig_R(d->vf, &plane, w, h, vsapi))
                 filter_R(d->vf, vsapi->getWritePtr(dst, i), &plane, d, w, h, vsapi->getStride(dst, i) / d->vi->format->bytesPerSample, vsapi, sx, sy);
@@ -239,8 +239,8 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     if (err)
         d.height = d.vi->height;
 
-    d.shift_x = vsapi->propGetFloat(in, "sx", 0, &err);
-    d.shift_y = vsapi->propGetFloat(in, "sy", 0, &err);
+    d.src_x = vsapi->propGetFloat(in, "sx", 0, &err);
+    d.src_y = vsapi->propGetFloat(in, "sy", 0, &err);
 
 
     struct pl_sample_filter_params *sampleFilterParams = malloc(sizeof(struct pl_sample_filter_params));;
@@ -289,12 +289,12 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
         if (!err)
             f->radius = vsapi->propGetFloat(in, "radius", 0, &err);
     }
-    vsapi->propGetFloat(in, "param0", 0, &err);
-    if (!err)
-        f->params[0] = vsapi->propGetFloat(in, "param0", 0, &err);
     vsapi->propGetFloat(in, "param1", 0, &err);
-    if (!err)
-        f->params[1] = vsapi->propGetFloat(in, "param1", 0, &err);
+    if (!err && f->tunable[0])
+        f->params[0] = vsapi->propGetFloat(in, "param1", 0, &err);
+    vsapi->propGetFloat(in, "param2", 0, &err);
+    if (!err && f->tunable[1])
+        f->params[1] = vsapi->propGetFloat(in, "param2", 0, &err);
     sampleFilterParams->filter.kernel = f;
 
 
