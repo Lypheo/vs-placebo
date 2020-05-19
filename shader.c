@@ -237,7 +237,6 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
 
     char* sh = vsapi->propGetData(in, "shader", 0, &err);
     FILE* fl = fopen(sh, "r");
-//    FILE* fl = fopen("C:\\Users\\saifu\\Downloads\\FSRCNNX_x2_16-0-4-1.glsl", "r");
     fseek(fl, 0, SEEK_END);
     long fsize = ftell(fl);
     fseek(fl, 0, SEEK_SET);

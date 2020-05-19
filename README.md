@@ -46,7 +46,7 @@ however in practice they all perform equally since they’re bottlenecked by GPU
 
 #### ``placebo.Shader(clip clip, string shader[, int width, int height, int chroma_loc = 1, int matrix = 2, int trc = 1, string filter = "ewa_lanczos", float radius, float clamp, float taper, float blur, float param1, float param2, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001, bool sigmoidize = 1, bool linearize = 1, float sigmoid_center = 0.75, float sigmoid_slope = 6.5])``
 
-Runs a GLSL shader in mpv syntax.
+Runs a GLSL shader in [mpv syntax](https://mpv.io/manual/master/#options-glsl-shader).
 
 Takes a YUVxxxP16 clips as input and outputs YUV444P16.
 This is necessitated by the fundamental design of libplacebo/mpv’s custom shader feature:
@@ -58,6 +58,7 @@ only running the supplied shader if the texture it hooks into is actually render
 For example, if a shader hooks into the LINEAR texture,
 it will only be executed when ``linearize = True``. 
 
+- ``shader``: Path to shader file.
 - ``width, height``: Output dimensions. Need to be specified for scaling shaders to be run. 
 Any planes the shader doesn’t scale appropiately will be scaled to output res by libplacebo
 using the supplied filter options, which are identical to ``Resample``’s.
