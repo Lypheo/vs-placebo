@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include "VapourSynth.h"
 #include <stdbool.h>
 #include <libplacebo/dispatch.h>

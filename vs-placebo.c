@@ -2,6 +2,7 @@
 #include "deband.h"
 #include "tonemap.h"
 #include "resample.h"
+#include "shader.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -13,18 +14,29 @@
 
 #include "vs-placebo.h"
 
+void logging(void *log_priv, enum pl_log_level level, const char *msg) {
+    printf("%s\n", msg);
+}
+
 void *init(void) {
     struct priv *p = calloc(1, sizeof(struct priv));
     if (!p)
         return NULL;
 
-    p->ctx = pl_context_create(PL_API_VER, NULL);
+    p->ctx = pl_context_create(PL_API_VER, &(struct pl_context_params) {
+        .log_cb = logging,
+        .log_level = PL_LOG_ERR
+    });
     if (!p->ctx) {
         fprintf(stderr, "Failed initializing libplacebo\n");
         goto error;
     }
 
-    p->vk = pl_vulkan_create(p->ctx, NULL);
+    struct pl_vulkan_params vp = pl_vulkan_default_params;
+    struct pl_vk_inst_params ip = pl_vk_inst_default_params;
+//    ip.debug = true;
+    vp.instance_params = &ip;
+    p->vk = pl_vulkan_create(p->ctx, &vp);
 
     if (!p->vk) {
         fprintf(stderr, "Failed creating vulkan context\n");
@@ -56,7 +68,6 @@ void *init(void) {
 void uninit(void *priv)
 {
     struct priv *p = priv;
-
     for (int i = 0; i < MAX_PLANES; i++) {
         pl_tex_destroy(p->gpu, &p->tex_in[i]);
         pl_tex_destroy(p->gpu, &p->tex_out[i]);
@@ -84,4 +95,8 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegiste
                             "intent:int:opt;"
                             "tone_mapping_algo:int:opt;tone_mapping_param:float:opt;desaturation_strength:float:opt;desaturation_exponent:float:opt;desaturation_base:float:opt;max_boost:float:opt;gamut_warning:int:opt;"
                             , TMCreate, 0, plugin);
+    registerFunc("Shader", "clip:clip;shader:data;width:int:opt;height:int:opt;chroma_loc:int:opt;matrix:int:opt;trc:int:opt;"
+                           "linearize:int:opt;sigmoidize:int:opt;sigmoid_center:float:opt;sigmoid_slope:float:opt;"
+                           "lut_entries:int:opt;antiring:float:opt;"
+                           "filter:data:opt;clamp:float:opt;blur:float:opt;taper:float:opt;radius:float:opt;param1:float:opt;param2:float:opt;", SCreate, 0, plugin);
 }

@@ -15,10 +15,10 @@ typedef struct {
     void * vf;
     int width;
     int height;
-    struct pl_sample_filter_params *sampleParams;
-    struct pl_shader_obj *lut;
     float src_x;
     float src_y;
+    struct pl_sample_filter_params *sampleParams;
+    struct pl_shader_obj *lut;
     struct pl_sigmoid_params * sigmoid_params;
     enum pl_color_transfer trc;
     bool linear;
@@ -51,7 +51,7 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
     if (d->sigmoid_params)
         pl_shader_sigmoidize(ish, d->sigmoid_params);
 
-    if (!pl_dispatch_finish(p->dp, &ish, sample_fbo, NULL, NULL)) {
+    if (!pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = sample_fbo, .shader = &ish})) {
         vsapi->logMessage(mtCritical, "Failed linearizing/sigmoidizing! \n");
         return false;
     }
@@ -88,7 +88,8 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
             vsapi->logMessage(mtCritical, "failed creating intermediate texture!\n");
 
         src2.tex = sep_fbo;
-        if (!pl_dispatch_finish(p->dp, &tsh, sep_fbo, NULL, NULL)) {
+//        if (!pl_dispatch_finish(p->dp, &tsh, sep_fbo, NULL, NULL)) {
+        if (!pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = sep_fbo, .shader = &tsh})) {
             vsapi->logMessage(mtCritical, "Failed rendering vertical pass! \n");
             return false;
         }
@@ -104,7 +105,7 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
         pl_shader_delinearize(sh, d->trc);
 
 
-    bool ok = pl_dispatch_finish(p->dp, &sh, p->tex_out[0], NULL, NULL);
+    bool ok = pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = p->tex_out[0], .shader = &sh});
     pl_tex_destroy(p->gpu, &sep_fbo);
     pl_tex_destroy(p->gpu, &sample_fbo);
     return ok;

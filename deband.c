@@ -15,7 +15,7 @@ typedef struct {
     int dither;
     struct pl_dither_params *ditherParams;
     struct pl_deband_params *debandParams;
-    int renderer;
+    int renderer; // for debugging purposes
 } MData;
 
 bool do_plane(struct priv *p, void* data, int chroma)
@@ -30,7 +30,10 @@ bool do_plane(struct priv *p, void* data, int chroma)
                          d->debandParams);
         if (d->dither)
             pl_shader_dither(sh, new_depth, &p->dither_state, d->ditherParams);
-        return pl_dispatch_finish(p->dp, &sh, p->tex_out[0], NULL, NULL);
+        return pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {
+            .shader = &sh,
+            .target = p->tex_out[0],
+        });
 
     } else {
 

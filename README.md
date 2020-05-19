@@ -38,8 +38,31 @@ Input needs to be 8 or 16 bit Integer or 32 bit Float
 - ``sigmoidize, linearize``: Whether to linearize/sigmoidize before scaling.
 When sigmodizing, ``linearize`` should be True as well. (Currently mangles HDR video, so disable for that.) 
 - ``sigmoid_center, sigmoid_slope``: Sigmoid curve parameters.
-- ``trc``: The transfer curve to use for linearizing.
+- ``trc``: The [transfer curve](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/colorspace.h#L183) to use for linearizing.
 
 In theory, ewa_* filters should be significantly slower than seperable ones,
 and disabling linearization/sigmoidization should provide a speed-up,
 however in practice they all perform equally since they’re bottlenecked by GPU transfers. 
+
+#### ``placebo.Shader(clip clip, string shader[, int width, int height, int chroma_loc = 1, int matrix = 2, int trc = 1, string filter = "ewa_lanczos", float radius, float clamp, float taper, float blur, float param1, float param2, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001, bool sigmoidize = 1, bool linearize = 1, float sigmoid_center = 0.75, float sigmoid_slope = 6.5])``
+
+Runs a GLSL shader in mpv syntax.
+
+Takes a YUVxxxP16 clips as input and outputs YUV444P16.
+This is necessitated by the fundamental design of libplacebo/mpv’s custom shader feature:
+the shaders aren’t meant (nor written) to be run by themselves,
+but to be injected at arbitrary points into a [rendering pipeline](https://github.com/mpv-player/mpv/wiki/Video-output---shader-stage-diagram) with RGB output.
+As such, the user needs to specify the output frame properties,
+and libplacebo will produce a conforming image,
+only running the supplied shader if the texture it hooks into is actually rendered.
+For example, if a shader hooks into the LINEAR texture,
+it will only be executed when ``linearize = True``. 
+
+- ``width, height``: Output dimensions. Need to be specified for scaling shaders to be run. 
+Any planes the shader doesn’t scale appropiately will be scaled to output res by libplacebo
+using the supplied filter options, which are identical to ``Resample``’s.
+(To be exact, chroma will be scaled to what the luma prescaler outputs
+(or the source luma res); then the image will be scaled to output res in RGB and converted back to YUV.)
+- ``chroma_loc``: Chroma location to derive chroma shift from. Uses [pl_chroma_location](https://github.com/haasn/libplacebo/blob/524e3965c6f8f976b3f8d7d82afe3083d61a7c4d/src/include/libplacebo/colorspace.h#L332) enum values.
+- ``matrix``: [YUV matrix](https://github.com/haasn/libplacebo/blob/524e3965c6f8f976b3f8d7d82afe3083d61a7c4d/src/include/libplacebo/colorspace.h#L26).
+- ``sigmoidize, linearize, sigmoid_center, sigmoid_slope,trc``: For shaders that hook into the LINEARIZE or SIGMOID texture.
