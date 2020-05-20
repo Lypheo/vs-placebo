@@ -219,8 +219,8 @@ static const VSFrameRef *VS_CC SGetFrame(int n, int activationReason, void **ins
 static void VS_CC SFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
     SData *d = (SData *)instanceData;
     vsapi->freeNode(d->node);
-    uninit(d->vf);
     pl_mpv_user_shader_destroy(&d->shader);
+    uninit(d->vf);
     free(d->sampleParams->filter.kernel);
     free(d->sampleParams);
     free(d->sigmoid_params);
@@ -232,11 +232,17 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
     SData *data;
     int err;
 
+    char* sh = vsapi->propGetData(in, "shader", 0, &err);
+    FILE* fl = fopen(sh, "r");
+    if (fl == NULL) {
+        perror("Failed: ");
+        vsapi->setError(out, "placebo.Shader: Failed reading shader file!");
+        return;
+    }
+
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
 
-    char* sh = vsapi->propGetData(in, "shader", 0, &err);
-    FILE* fl = fopen(sh, "r");
     fseek(fl, 0, SEEK_END);
     long fsize = ftell(fl);
     fseek(fl, 0, SEEK_SET);
@@ -244,7 +250,6 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
     fread(shader, 1, fsize, fl);
     fclose(fl);
     shader[fsize] = 0;
-
     d.vf = init();
     d.shader = pl_mpv_user_shader_parse(d.vf->gpu, shader, fsize);
     free(shader);
