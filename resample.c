@@ -329,6 +329,7 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     FILTER_ELIF(ewa_hann)
     FILTER_ELIF(haasnsoft)
     FILTER_ELIF(bicubic)
+    FILTER_ELIF(catmull_rom)
     FILTER_ELIF(mitchell)
     FILTER_ELIF(robidoux)
     FILTER_ELIF(robidouxsharp)

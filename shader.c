@@ -220,10 +220,10 @@ static void VS_CC SFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
     SData *d = (SData *)instanceData;
     vsapi->freeNode(d->node);
     pl_mpv_user_shader_destroy(&d->shader);
-    uninit(d->vf);
     free(d->sampleParams->filter.kernel);
     free(d->sampleParams);
     free(d->sigmoid_params);
+    uninit(d->vf);
     free(d);
 }
 
@@ -323,6 +323,7 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
     FILTER_ELIF(ewa_hann)
     FILTER_ELIF(haasnsoft)
     FILTER_ELIF(bicubic)
+    FILTER_ELIF(catmull_rom)
     FILTER_ELIF(mitchell)
     FILTER_ELIF(robidoux)
     FILTER_ELIF(robidouxsharp)
