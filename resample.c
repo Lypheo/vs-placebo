@@ -88,7 +88,6 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
             vsapi->logMessage(mtCritical, "failed creating intermediate texture!\n");
 
         src2.tex = sep_fbo;
-//        if (!pl_dispatch_finish(p->dp, &tsh, sep_fbo, NULL, NULL)) {
         if (!pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = sep_fbo, .shader = &tsh})) {
             vsapi->logMessage(mtCritical, "Failed rendering vertical pass! \n");
             return false;
@@ -109,7 +108,7 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
     pl_tex_destroy(p->gpu, &sep_fbo);
     pl_tex_destroy(p->gpu, &sample_fbo);
     return ok;
-//
+
 //    struct pl_plane plane = (struct pl_plane) {.texture = p->tex_in[0], .components = 1, .component_mapping[0] = 0};
 //
 //    struct pl_color_repr crpr = {.bits = {.sample_depth = d->vi->format->bytesPerSample * 8, .color_depth =
@@ -124,7 +123,7 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
 //            .downscaler = &d->sampleParams->filter,
 //            .upscaler = &d->sampleParams->filter,
 //            .sigmoid_params = d->sigmoid_params,
-//            .disable_linear_scaling = 0
+//            .disable_linear_scaling = !d->linear,
 //    };
 //    return pl_render_image(p->rr, &img, &out, &par);
 
@@ -289,7 +288,10 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     d.src_x = vsapi->propGetFloat(in, "sx", 0, &err);
     d.src_y = vsapi->propGetFloat(in, "sy", 0, &err);
     d.linear = vsapi->propGetInt(in, "linearize", 0, &err);
-    if (err) d.linear = 1;
+    // only enable by default for RGB because linearizing YCbCr directly is incorrect and Gray may be a YCbCr plane
+    if (err) d.linear = d.vi->format->colorFamily == cmRGB;
+    // allow linearizing Gray manually, though, if the user knows what he’s doing
+    d.linear = d.linear && (d.vi->format->colorFamily == cmRGB || d.vi->format->colorFamily == cmGray);
     d.trc = vsapi->propGetInt(in, "trc", 0, &err);
     if (err) d.trc = 1;
 
@@ -298,8 +300,10 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     if (err) sigmoidParams->center = pl_sigmoid_default_params.center;
     sigmoidParams->slope = vsapi->propGetFloat(in, "sigmoid_slope", 0, &err);
     if (err) sigmoidParams->slope = pl_sigmoid_default_params.slope;
+    // same reasoning as with linear
     bool sigm = vsapi->propGetInt(in, "sigmoidize", 0, &err);
-    if (err) sigm = true;
+    if (err) sigm = d.vi->format->colorFamily == cmRGB;
+    sigm = sigm && (d.vi->format->colorFamily == cmRGB || d.vi->format->colorFamily == cmGray);
     d.sigmoid_params = sigm ? sigmoidParams : NULL;
 
 

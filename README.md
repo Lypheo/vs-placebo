@@ -36,13 +36,11 @@ Input needs to be 8 or 16 bit Integer or 32 bit Float
 
 - ``radius, param1, param2``: [Kernel config](https://github.com/haasn/libplacebo/blob/885e89bccfb932d9e8c8659039ab6975e885e996/src/include/libplacebo/filters.h#L30-L131).
 - ``sigmoidize, linearize``: Whether to linearize/sigmoidize before scaling.
+Enabled by default for RGB, disabled for YCbCr because NCL YCbCr can’t be correctly linearized without conversion to RGB.
+Defaults to disabled for GRAY since it may be a YCbCr plane, but can be manually enabled. 
 When sigmodizing, ``linearize`` should be True as well. (Currently mangles HDR video, so disable for that.) 
 - ``sigmoid_center, sigmoid_slope``: Sigmoid curve parameters.
 - ``trc``: The [transfer curve](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/colorspace.h#L183) to use for linearizing.
-
-In theory, ewa_* filters should be significantly slower than seperable ones,
-and disabling linearization/sigmoidization should provide a speed-up,
-however in practice they all perform equally since they’re bottlenecked by GPU transfers. 
 
 #### ``placebo.Shader(clip clip, string shader[, int width, int height, int chroma_loc = 1, int matrix = 2, int trc = 1, string filter = "ewa_lanczos", float radius, float clamp, float taper, float blur, float param1, float param2, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001, bool sigmoidize = 1, bool linearize = 1, float sigmoid_center = 0.75, float sigmoid_slope = 6.5])``
 

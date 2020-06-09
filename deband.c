@@ -43,7 +43,9 @@ bool do_plane(struct priv *p, void* data, int chroma)
         d->vi->format->bytesPerSample * 8, .bit_shift = 0},
                 .levels = PL_COLOR_LEVELS_UNKNOWN, .alpha = PL_ALPHA_UNKNOWN, .sys = PL_COLOR_SYSTEM_UNKNOWN};
 
-        struct pl_image img = {.num_planes = 1, .width = d->vi->width >> (chroma ? d->vi->format->subSamplingW : 0), .height = d->vi->height >> (chroma ? d->vi->format->subSamplingH : 0),
+        struct pl_image img = {.num_planes = 1,
+                .width = d->vi->width >> (chroma ? d->vi->format->subSamplingW : 0),
+                .height = d->vi->height >> (chroma ? d->vi->format->subSamplingH : 0),
                 .planes[0] = plane,
                 .repr = crpr, .color = (struct pl_color_space) {0}};
         struct pl_render_target out = {.color = (struct pl_color_space) {0}, .repr = crpr, .fbo = p->tex_out[0]};
