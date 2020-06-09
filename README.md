@@ -65,3 +65,12 @@ using the supplied filter options, which are identical to ``Resample``’s.
 - ``chroma_loc``: Chroma location to derive chroma shift from. Uses [pl_chroma_location](https://github.com/haasn/libplacebo/blob/524e3965c6f8f976b3f8d7d82afe3083d61a7c4d/src/include/libplacebo/colorspace.h#L332) enum values.
 - ``matrix``: [YUV matrix](https://github.com/haasn/libplacebo/blob/524e3965c6f8f976b3f8d7d82afe3083d61a7c4d/src/include/libplacebo/colorspace.h#L26).
 - ``sigmoidize, linearize, sigmoid_center, sigmoid_slope,trc``: For shaders that hook into the LINEARIZE or SIGMOID texture.
+
+
+### Installing
+
+If you’re on Arch, just do
+```
+$ yay -S vapoursynth-plugin-placebo-git
+```
+Else try your luck with cmake or meson. Windows builds are available under releases.
