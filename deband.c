@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <libplacebo/dispatch.h>
 #include <libplacebo/utils/upload.h>
+#include <pthread.h>
 
 typedef struct {
     VSNodeRef *node;
@@ -16,6 +17,7 @@ typedef struct {
     struct pl_dither_params *ditherParams;
     struct pl_deband_params *debandParams;
     int renderer; // for debugging purposes
+    pthread_mutex_t lock;
 } MData;
 
 bool do_plane(struct priv *p, void* data, int chroma)
@@ -173,9 +175,10 @@ static const VSFrameRef *VS_CC DebandGetFrame(int n, int activationReason, void 
                         .component_pad[0] = 0,
                         .component_map[0] = 0,
                 };
-
+                pthread_mutex_lock(&d->lock); // libplacebo isn’t thread-safe
                 if (reconfig(d->vf, &plane, vsapi))
                     filter(d->vf, vsapi->getWritePtr(dst, i), &plane, d, vsapi, i != 0);
+                pthread_mutex_unlock(&d->lock);
             }
         }
 
@@ -192,6 +195,7 @@ static void VS_CC DebandFree(void *instanceData, VSCore *core, const VSAPI *vsap
     uninit(d->vf);
     free(d->ditherParams);
     free(d->debandParams);
+    pthread_mutex_destroy(&d->lock);
     free(d);
 }
 
@@ -199,6 +203,12 @@ void VS_CC DebandCreate(const VSMap *in, VSMap *out, void *userData, VSCore *cor
     MData d;
     MData *data;
     int err;
+
+    if (pthread_mutex_init(&d.lock, NULL) != 0)
+    {
+        vsapi->setError(out, "placebo.Deband: mutex init failed\n");
+        return;
+    }
 
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
@@ -239,5 +249,5 @@ void VS_CC DebandCreate(const VSMap *in, VSMap *out, void *userData, VSCore *cor
     data = malloc(sizeof(d));
     *data = d;
 
-    vsapi->createFilter(in, out, "Deband", DebandInit, DebandGetFrame, DebandFree, fmUnordered, 0, data, core);
+    vsapi->createFilter(in, out, "Deband", DebandInit, DebandGetFrame, DebandFree, fmParallel, 0, data, core);
 }

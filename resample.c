@@ -8,6 +8,7 @@
 #include <libplacebo/utils/upload.h>
 #include <libplacebo/filters.h>
 #include <libplacebo/colorspace.h>
+#include <pthread.h>
 
 typedef struct {
     VSNodeRef *node;
@@ -22,6 +23,7 @@ typedef struct {
     struct pl_sigmoid_params * sigmoid_params;
     enum pl_color_transfer trc;
     bool linear;
+    pthread_mutex_t lock;
 } RData;
 
 bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, float sx, float sy)
@@ -239,9 +241,11 @@ static const VSFrameRef *VS_CC ResampleGetFrame(int n, int activationReason, voi
             float sx = (shift ? subsampling_shift : 0.f) + d->src_x * vsapi->getFrameWidth(frame, i)/d->vi->width;
             float sy = d->src_y * vsapi->getFrameHeight(frame, i)/d->vi->height;
             int w = vsapi->getFrameWidth(dst, i), h = vsapi->getFrameHeight(dst, i);
+
+            pthread_mutex_lock(&d->lock);
             if (reconfig_R(d->vf, &plane, w, h, vsapi))
                 filter_R(d->vf, vsapi->getWritePtr(dst, i), &plane, d, w, h, vsapi->getStride(dst, i) / d->vi->format->bytesPerSample, vsapi, sx, sy);
-
+            pthread_mutex_unlock(&d->lock);
         }
 
         vsapi->freeFrame(frame);
@@ -259,6 +263,7 @@ static void VS_CC ResampleFree(void *instanceData, VSCore *core, const VSAPI *vs
     free(d->sampleParams);
     free(d->sigmoid_params);
     uninit(d->vf);
+    pthread_mutex_destroy(&d->lock);
     free(d);
 }
 
@@ -266,6 +271,11 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     RData d;
     RData *data;
     int err;
+    if (pthread_mutex_init(&d.lock, NULL) != 0)
+    {
+        vsapi->setError(out, "placebo.Resample: mutex init failed\n");
+        return;
+    }
 
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
@@ -366,5 +376,5 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     d.sampleParams = sampleFilterParams;
     data = malloc(sizeof(d));
     *data = d;
-    vsapi->createFilter(in, out, "Resample", ResampleInit, ResampleGetFrame, ResampleFree, fmUnordered, 0, data, core);
+    vsapi->createFilter(in, out, "Resample", ResampleInit, ResampleGetFrame, ResampleFree, fmParallel, 0, data, core);
 }

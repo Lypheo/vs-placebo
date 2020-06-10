@@ -9,6 +9,7 @@
 #include <libplacebo/utils/upload.h>
 #include <libplacebo/vulkan.h>
 #include "libp2p/p2p_api.h"
+#include <pthread.h>
 
 typedef  struct {
     VSNodeRef *node;
@@ -17,6 +18,7 @@ typedef  struct {
     struct pl_render_params *renderParams;
     struct pl_color_space *src_csp;
     struct pl_color_space *dst_csp;
+    pthread_mutex_t lock;
 } TMData;
 
 bool do_plane_TM(struct priv *p, void* data, int n)
@@ -156,9 +158,10 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
         }
 
         void * packed_dst = malloc(iw*ih*2*3);
-
+        pthread_mutex_lock(&d->lock); // libplacebo isn’t thread-safe
         if (config_TM(d->vf, planes, vsapi))
             filter_TM(d->vf, packed_dst, planes, d, n, vsapi);
+        pthread_mutex_unlock(&d->lock);
 
         struct p2p_buffer_param pack_params = {};
         pack_params.width = iw; pack_params.height = ih;
@@ -189,6 +192,7 @@ static void VS_CC TMFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
     free(d->renderParams->peak_detect_params);
     free(d->renderParams->color_map_params);
     free(d->renderParams);
+    pthread_mutex_destroy(&d->lock);
     free(d);
 }
 
@@ -196,6 +200,11 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
     TMData d;
     TMData *data;
     int err;
+    if (pthread_mutex_init(&d.lock, NULL) != 0)
+    {
+        vsapi->setError(out, "placebo.Tonemap: mutex init failed\n");
+        return;
+    }
 
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
@@ -264,5 +273,5 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
     data = malloc(sizeof(d));
     *data = d;
 
-    vsapi->createFilter(in, out, "Tonemap", TMInit, TMGetFrame, TMFree, peak_detection ? fmSerial : fmUnordered, 0, data, core);
+    vsapi->createFilter(in, out, "Tonemap", TMInit, TMGetFrame, TMFree, fmParallel, 0, data, core);
 }

@@ -10,6 +10,7 @@
 #include <libplacebo/utils/upload.h>
 #include <libplacebo/shaders/custom.h>
 #include <libplacebo/colorspace.h>
+#include <pthread.h>
 #include "libp2p/p2p_api.h"
 
 typedef  struct {
@@ -26,6 +27,7 @@ typedef  struct {
     struct pl_sigmoid_params * sigmoid_params;
     enum pl_color_transfer trc;
     bool linear;
+    pthread_mutex_t lock;
 } SData;
 
 
@@ -192,9 +194,11 @@ static const VSFrameRef *VS_CC SGetFrame(int n, int activationReason, void **ins
         }
 
         void * packed_dst = malloc(d->width*d->height*2*3);
+        pthread_mutex_lock(&d->lock);
         if (config_S(d->vf, planes, vsapi, d)) {
             filter_S(d->vf, packed_dst, planes, d, n, vsapi);
         }
+        pthread_mutex_unlock(&d->lock);
 
         struct p2p_buffer_param pack_params = {};
         pack_params.width = d->width; pack_params.height = d->height;
@@ -224,6 +228,7 @@ static void VS_CC SFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
     free(d->sampleParams);
     free(d->sigmoid_params);
     uninit(d->vf);
+    pthread_mutex_destroy(&d->lock);
     free(d);
 }
 
@@ -231,6 +236,11 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
     SData d;
     SData *data;
     int err;
+
+    if (pthread_mutex_init(&d.lock, NULL) != 0) {
+        vsapi->setError(out, "placebo.Shader: mutex init failed\n");
+        return;
+    }
 
     char* sh = vsapi->propGetData(in, "shader", 0, &err);
     FILE* fl = fopen(sh, "r");
@@ -357,5 +367,5 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
     data = malloc(sizeof(d));
     *data = d;
 
-    vsapi->createFilter(in, out, "Shader", SInit, SGetFrame, SFree, fmUnordered, 0, data, core);
+    vsapi->createFilter(in, out, "Shader", SInit, SGetFrame, SFree, fmParallel, 0, data, core);
 }
