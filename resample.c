@@ -110,25 +110,6 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
     pl_tex_destroy(p->gpu, &sep_fbo);
     pl_tex_destroy(p->gpu, &sample_fbo);
     return ok;
-
-//    struct pl_plane plane = (struct pl_plane) {.texture = p->tex_in[0], .components = 1, .component_mapping[0] = 0};
-//
-//    struct pl_color_repr crpr = {.bits = {.sample_depth = d->vi->format->bytesPerSample * 8, .color_depth =
-//    d->vi->format->bytesPerSample * 8, .bit_shift = 0},
-//            .levels = PL_COLOR_LEVELS_UNKNOWN, .alpha = PL_ALPHA_UNKNOWN, .sys = PL_COLOR_SYSTEM_UNKNOWN};
-//
-//    struct pl_image img = {.num_planes = 1, .width = d->vi->width, .height = d->vi->height,
-//            .planes[0] = plane,
-//            .repr = crpr, .color = (struct pl_color_space) {0}};
-//    struct pl_render_target out = {.color = (struct pl_color_space) {0}, .repr = crpr, .fbo = p->tex_out[0]};
-//    struct pl_render_params par = {
-//            .downscaler = &d->sampleParams->filter,
-//            .upscaler = &d->sampleParams->filter,
-//            .sigmoid_params = d->sigmoid_params,
-//            .disable_linear_scaling = !d->linear,
-//    };
-//    return pl_render_image(p->rr, &img, &out, &par);
-
 }
 
 bool reconfig_R(void *priv, struct pl_plane_data *data, int w, int h, const VSAPI *vsapi)

@@ -16,116 +16,99 @@ typedef struct {
     int dither;
     struct pl_dither_params *ditherParams;
     struct pl_deband_params *debandParams;
-    int renderer; // for debugging purposes
     pthread_mutex_t lock;
 } MData;
 
-bool do_plane(struct priv *p, void* data, int chroma)
+bool do_plane(struct priv *p, void* data, void* process[3])
 {
     MData* d = (MData*) data;
-
-    if (!d->renderer) {
-
+    bool ok = true;
+    for (int i=0; i < 3; i++) {
+        if (!process[i]) {
+            continue;
+        }
         struct pl_shader *sh = pl_dispatch_begin(p->dp);
-        int new_depth = p->tex_out[0]->params.format->component_depth[0];
-        pl_shader_deband(sh, &(struct pl_sample_src) {.tex = p->tex_in[0]},
+        int new_depth = p->tex_out[i]->params.format->component_depth[0];
+        pl_shader_deband(sh, &(struct pl_sample_src) {.tex = p->tex_in[i]},
                          d->debandParams);
         if (d->dither)
             pl_shader_dither(sh, new_depth, &p->dither_state, d->ditherParams);
-        return pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {
-            .shader = &sh,
-            .target = p->tex_out[0],
+        ok &= pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {
+                .shader = &sh,
+                .target = p->tex_out[i],
         });
-
-    } else {
-
-        struct pl_plane plane = (struct pl_plane) {.texture = p->tex_in[0], .components = 1, .component_mapping[0] = 0};
-
-        struct pl_color_repr crpr = {.bits = {.sample_depth = d->vi->format->bytesPerSample * 8, .color_depth =
-        d->vi->format->bytesPerSample * 8, .bit_shift = 0},
-                .levels = PL_COLOR_LEVELS_UNKNOWN, .alpha = PL_ALPHA_UNKNOWN, .sys = PL_COLOR_SYSTEM_UNKNOWN};
-
-        struct pl_image img = {.num_planes = 1,
-                .width = d->vi->width >> (chroma ? d->vi->format->subSamplingW : 0),
-                .height = d->vi->height >> (chroma ? d->vi->format->subSamplingH : 0),
-                .planes[0] = plane,
-                .repr = crpr, .color = (struct pl_color_space) {0}};
-        struct pl_render_target out = {.color = (struct pl_color_space) {0}, .repr = crpr, .fbo = p->tex_out[0]};
-        struct pl_render_params par = pl_render_default_params;
-        par.skip_redraw_caching = true;
-        par.deband_params = d->debandParams;
-        par.dither_params = d->dither ? d->ditherParams : NULL;
-
-        return pl_render_image(p->rr, &img, &out, &par);
-
     }
+    return ok;
 }
-
-bool reconfig(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
+bool filter(void *priv, void *dst[3], struct pl_plane_data src[3], void* d, const VSAPI *vsapi)
 {
     struct priv *p = priv;
 
-    const struct pl_fmt *fmt = pl_plane_find_fmt(p->gpu, NULL, data);
+    // confgiure textures
+    const struct pl_fmt *fmt = pl_plane_find_fmt(p->gpu, NULL, &src[0]);
     if (!fmt) {
         vsapi->logMessage(mtCritical, "Failed configuring filter: no good texture format!\n");
         return false;
     }
 
     bool ok = true;
-    ok &= pl_tex_recreate(p->gpu, &p->tex_in[0], &(struct pl_tex_params) {
-            .w = data->width,
-            .h = data->height,
-            .format = fmt,
-            .sampleable = true,
-            .host_writable = true,
-            .sample_mode = PL_TEX_SAMPLE_LINEAR,
-    });
-
-    ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], &(struct pl_tex_params) {
-            .w = data->width,
-            .h = data->height,
-            .format = fmt,
-            .renderable = true,
-            .host_readable = true,
-    });
+    for (int i = 0; i < 3; ++i) {
+        if (!dst[i])
+            continue;
+        ok &= pl_tex_recreate(p->gpu, &p->tex_in[i], &(struct pl_tex_params) {
+                .w = src[i].width,
+                .h = src[i].height,
+                .format = fmt,
+                .sampleable = true,
+                .host_writable = true,
+                .sample_mode = PL_TEX_SAMPLE_LINEAR,
+        });
+        ok &= pl_tex_recreate(p->gpu, &p->tex_out[i], &(struct pl_tex_params) {
+                .w = src[i].width,
+                .h = src[i].height,
+                .format = fmt,
+                .renderable = true,
+                .host_readable = true,
+        });
+    }
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed creating GPU textures!\n");
         return false;
     }
 
-    return true;
-}
-
-bool filter(void *priv, void *dst, struct pl_plane_data *src, void* d, const VSAPI *vsapi, int chroma)
-{
-    struct priv *p = priv;
-
     // Upload planes
-    bool ok = true;
-    ok &= pl_tex_upload(p->gpu, &(struct pl_tex_transfer_params) {
-            .tex = p->tex_in[0],
-            .stride_w = src->row_stride / src->pixel_stride,
-            .ptr = src->pixels,
-    });
+    for (int i = 0; i < 3; ++i) {
+        if (!dst[i])
+            continue;
+        ok &= pl_tex_upload(p->gpu, &(struct pl_tex_transfer_params) {
+                .tex = p->tex_in[i],
+                .stride_w = src[i].row_stride / src[i].pixel_stride,
+                .ptr = src[i].pixels,
+        });
+    }
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed uploading data to the GPU!\n");
         return false;
     }
 
-    // Process plane
-    if (!do_plane(p, d, chroma)) {
+    // Process planes
+    if (!do_plane(p, d, dst)) {
         vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
 
     // Download planes
-    ok = pl_tex_download(p->gpu, &(struct pl_tex_transfer_params) {
-            .tex = p->tex_out[0],
-            .stride_w = src->row_stride / src->pixel_stride,
-            .ptr = dst,
-    });
+    for (int i = 0; i < 3; ++i) {
+        if (!dst[i])
+            continue;
+        ok = pl_tex_download(p->gpu, &(struct pl_tex_transfer_params) {
+                .tex = p->tex_out[i],
+                .stride_w = src[i].row_stride / src[i].pixel_stride,
+                .ptr = dst[i],
+        });
+    }
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed downloading data from the GPU!\n");
@@ -152,11 +135,13 @@ static const VSFrameRef *VS_CC DebandGetFrame(int n, int activationReason, void 
         int ih = vsapi->getFrameHeight(frame, 0);
         int iw = vsapi->getFrameWidth(frame, 0);
 
-        int copy[3];
-        for (unsigned int j = 0; j < 3; ++j)
+        int copy[3] = {1,1,1};
+        for (unsigned int j = 0; j < d->vi->format->numPlanes; ++j)
             copy[j] = ((1u << j) & d->planes) == 0;
 
         VSFrameRef *dst = vsapi->newVideoFrame(d->vi->format, iw, ih, frame, core);
+        struct pl_plane_data planes[3] = {0};
+        void *dst_planes[3] = {NULL, NULL, NULL};
 
         for (int i=0; i<d->vi->format->numPlanes; i++) {
             if (copy[i]) {
@@ -164,7 +149,7 @@ static const VSFrameRef *VS_CC DebandGetFrame(int n, int activationReason, void 
                           vsapi->getStride(frame, i), vsapi->getFrameWidth(dst, i) * d->vi->format->bytesPerSample,
                           vsapi->getFrameHeight(dst, i));
             } else {
-                struct pl_plane_data plane = {
+                planes[i] = (struct pl_plane_data) {
                         .type = d->vi->format->sampleType == stInteger ? PL_FMT_UNORM : PL_FMT_FLOAT,
                         .width = vsapi->getFrameWidth(frame, i),
                         .height = vsapi->getFrameHeight(frame, i),
@@ -175,12 +160,12 @@ static const VSFrameRef *VS_CC DebandGetFrame(int n, int activationReason, void 
                         .component_pad[0] = 0,
                         .component_map[0] = 0,
                 };
-                pthread_mutex_lock(&d->lock); // libplacebo isn’t thread-safe
-                if (reconfig(d->vf, &plane, vsapi))
-                    filter(d->vf, vsapi->getWritePtr(dst, i), &plane, d, vsapi, i != 0);
-                pthread_mutex_unlock(&d->lock);
+                dst_planes[i] = vsapi->getWritePtr(dst, i);
             }
         }
+        pthread_mutex_lock(&d->lock);
+        filter(d->vf, dst_planes, planes, d, vsapi);
+        pthread_mutex_unlock(&d->lock);
 
         vsapi->freeFrame(frame);
         return dst;
@@ -220,7 +205,6 @@ void VS_CC DebandCreate(const VSMap *in, VSMap *out, void *userData, VSCore *cor
 
     d.vf = init();
 
-    d.renderer = vsapi->propGetInt(in, "renderer_api", 0, &err);
     d.dither = vsapi->propGetInt(in, "dither", 0, &err) && d.vi->format->bitsPerSample == 8;
     if (err)
         d.dither = d.vi->format->bitsPerSample == 8;
@@ -246,7 +230,7 @@ void VS_CC DebandCreate(const VSMap *in, VSMap *out, void *userData, VSCore *cor
 
     d.ditherParams = plDitherParams;
     d.debandParams = debandParams;
-    data = malloc(sizeof(d));
+    data = calloc(1, sizeof(d));
     *data = d;
 
     vsapi->createFilter(in, out, "Deband", DebandInit, DebandGetFrame, DebandFree, fmParallel, 0, data, core);
