@@ -26,12 +26,14 @@ For example, to map from [BT.2020, PQ\] (HDR) to traditional [BT.709, BT.1886\] 
 - ``tone_mapping_algo, tone_mapping_param, desaturation_strength, desaturation_exponent, desaturation_base, max_boost, gamut_warning``:
  [Color mapping params](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L199).
 
-#### ``placebo.Resample(clip clip[, int width, int height, string filter = "ewa_lanczos", float radius, float clamp, float taper, float blur, float param1, float param2, float sx = 0.0, float sy = 0.0, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001, bool sigmoidize = 1, bool linearize = 1, float sigmoid_center = 0.75, float sigmoid_slope = 6.5, int trc = 1])``
+#### ``placebo.Resample(clip clip[, int width, int height, string filter = "ewa_lanczos", int chroma_loc = 1, float radius, float clamp, float taper, float blur, float param1, float param2, float sx = 0.0, float sy = 0.0, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001, bool sigmoidize = 1, bool linearize = 1, float sigmoid_center = 0.75, float sigmoid_slope = 6.5, int trc = 1])``
 
 Input needs to be 8 or 16 bit Integer or 32 bit Float   
 
 - ``filter``: See [the header](https://github.com/haasn/libplacebo/blob/210131146739e4e84d689f32c17a97b27a6550bd/src/include/libplacebo/filters.h#L187) for possible values (remove the “pl_filter” before the filter name, e.g. ``filter="lanczos"``).  
 - ``sx``, ``sy``: Top left corner of the source region. Can be used for subpixel shifts
+- ``chroma_loc``: Chroma location to derive chroma shift from. Uses [pl_chroma_location](https://github.com/haasn/libplacebo/blob/524e3965c6f8f976b3f8d7d82afe3083d61a7c4d/src/include/libplacebo/colorspace.h#L332) enum values.
+Default is left.
 - ``clamp, taper, blur``: [Filter config](https://github.com/haasn/libplacebo/blob/885e89bccfb932d9e8c8659039ab6975e885e996/src/include/libplacebo/filters.h#L148).
 
 - ``radius, param1, param2``: [Kernel config](https://github.com/haasn/libplacebo/blob/885e89bccfb932d9e8c8659039ab6975e885e996/src/include/libplacebo/filters.h#L30-L131).
@@ -62,7 +64,7 @@ Any planes the shader doesn’t scale appropiately will be scaled to output res 
 using the supplied filter options, which are identical to ``Resample``’s.
 (To be exact, chroma will be scaled to what the luma prescaler outputs
 (or the source luma res); then the image will be scaled to output res in RGB and converted back to YUV.)
-- ``chroma_loc``: Chroma location to derive chroma shift from. Uses [pl_chroma_location](https://github.com/haasn/libplacebo/blob/524e3965c6f8f976b3f8d7d82afe3083d61a7c4d/src/include/libplacebo/colorspace.h#L332) enum values.
+- ``chroma_loc``: See Resample.
 - ``matrix``: [YUV matrix](https://github.com/haasn/libplacebo/blob/524e3965c6f8f976b3f8d7d82afe3083d61a7c4d/src/include/libplacebo/colorspace.h#L26).
 - ``sigmoidize, linearize, sigmoid_center, sigmoid_slope,trc``: For shaders that hook into the LINEARIZE or SIGMOID texture.
 

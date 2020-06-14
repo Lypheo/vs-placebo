@@ -18,6 +18,7 @@ typedef struct {
     int height;
     float src_x;
     float src_y;
+    enum pl_chroma_location chromaLocation;
     struct pl_sample_filter_params *sampleParams;
     struct pl_shader_obj *lut;
     struct pl_sigmoid_params * sigmoid_params;
@@ -26,157 +27,170 @@ typedef struct {
     pthread_mutex_t lock;
 } RData;
 
-bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, float sx, float sy)
+bool do_plane_R(struct priv *p, void* data, int process[3], const VSAPI *vsapi, float sx[3], float sy[3])
 {
-    RData* d = (RData*) data;
-    struct pl_shader *sh = pl_dispatch_begin(p->dp);
-    const struct pl_tex *sample_fbo = NULL;
-    const struct pl_tex *sep_fbo = NULL;
-    struct pl_sample_src src = (struct pl_sample_src){ .tex = p->tex_in[0]};
-    struct pl_sample_filter_params sampleFilterParams = *d->sampleParams;
-    sampleFilterParams.lut = &d->lut;
-
-    //
-    // linearization and sigmoidization
-    //
-
-    struct pl_shader *ish = pl_dispatch_begin(p->dp);
-    struct pl_tex_params tex_params = {.w = src.tex->params.w, .h = src.tex->params.h, .renderable = true, .sampleable = true, .format = src.tex->params.format, .sample_mode = PL_TEX_SAMPLE_LINEAR};
-
-    if (!pl_tex_recreate(p->gpu, &sample_fbo, &tex_params))
-        vsapi->logMessage(mtCritical, "failed creating intermediate color texture!\n");
-
-    pl_shader_sample_direct(ish, &src);
-    if (d->linear)
-        pl_shader_linearize(ish, d->trc);
-
-    if (d->sigmoid_params)
-        pl_shader_sigmoidize(ish, d->sigmoid_params);
-
-    if (!pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = sample_fbo, .shader = &ish})) {
-        vsapi->logMessage(mtCritical, "Failed linearizing/sigmoidizing! \n");
-        return false;
-    }
-
-    //
-    // sampling
-    //
-
-    struct pl_rect2df rect = {
-            sx,
-            sy,
-            p->tex_in[0]->params.w + sx,
-            p->tex_in[0]->params.h + sy,
-    };
-    src.tex = sample_fbo;
-    src.rect = rect;
-    src.new_h = h; src.new_w = w;
-
-    if (d->sampleParams->filter.polar) {
-        if (!pl_shader_sample_polar(sh, &src, &sampleFilterParams))
-            vsapi->logMessage(mtCritical, "Failed dispatching scaler...\n");
-    } else {
-        struct pl_shader *tsh = pl_dispatch_begin(p->dp);
-
-        if (!pl_shader_sample_ortho(tsh, PL_SEP_VERT, &src, &sampleFilterParams)) {
-            vsapi->logMessage(mtCritical, "Failed dispatching vertical pass!\n");
-            pl_dispatch_abort(p->dp, &tsh);
+    bool ok = true;
+    for (int i=0; i < 3; i++) {
+        if (!process[i]) {
+            continue;
         }
 
-        struct pl_sample_src src2 = src;
-        struct pl_tex_params tex_params = {.w = src.tex->params.w, .h = src.new_h, .renderable = true, .sampleable = true, .format = src.tex->params.format, .sample_mode = PL_TEX_SAMPLE_LINEAR};
+        RData *d = (RData *) data;
+        struct pl_shader *sh = pl_dispatch_begin(p->dp);
+        const struct pl_tex *sample_fbo = NULL;
+        const struct pl_tex *sep_fbo = NULL;
+        struct pl_sample_src src = (struct pl_sample_src) {.tex = p->tex_in[i]};
+        struct pl_sample_filter_params sampleFilterParams = *d->sampleParams;
+        sampleFilterParams.lut = &d->lut;
 
-        if (!pl_tex_recreate(p->gpu, &sep_fbo, &tex_params))
-            vsapi->logMessage(mtCritical, "failed creating intermediate texture!\n");
+        //
+        // linearization and sigmoidization
+        //
 
-        src2.tex = sep_fbo;
-        if (!pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = sep_fbo, .shader = &tsh})) {
-            vsapi->logMessage(mtCritical, "Failed rendering vertical pass! \n");
+        struct pl_shader *ish = pl_dispatch_begin(p->dp);
+        struct pl_tex_params tex_params = {.w = src.tex->params.w, .h = src.tex->params.h, .renderable = true, .sampleable = true, .format = src.tex->params.format, .sample_mode = PL_TEX_SAMPLE_LINEAR};
+
+        if (!pl_tex_recreate(p->gpu, &sample_fbo, &tex_params))
+            vsapi->logMessage(mtCritical, "failed creating intermediate color texture!\n");
+
+        pl_shader_sample_direct(ish, &src);
+        if (d->linear)
+            pl_shader_linearize(ish, d->trc);
+
+        if (d->sigmoid_params)
+            pl_shader_sigmoidize(ish, d->sigmoid_params);
+
+        if (!pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = sample_fbo, .shader = &ish})) {
+            vsapi->logMessage(mtCritical, "Failed linearizing/sigmoidizing! \n");
             return false;
         }
 
-        if (!pl_shader_sample_ortho(sh, PL_SEP_HORIZ, &src2, &sampleFilterParams))
-            vsapi->logMessage(mtCritical, "Failed dispatching horizontal pass! \n");
+        //
+        // sampling
+        //
+
+        struct pl_rect2df rect = {
+                -sx[i],
+                -sy[i],
+                p->tex_in[i]->params.w - sx[i],
+                p->tex_in[i]->params.h - sy[i],
+        };
+        src.tex = sample_fbo;
+        src.rect = rect;
+        src.new_h = p->tex_out[i]->params.h;
+        src.new_w = p->tex_out[i]->params.w;
+
+        if (d->sampleParams->filter.polar) {
+            if (!pl_shader_sample_polar(sh, &src, &sampleFilterParams))
+                vsapi->logMessage(mtCritical, "Failed dispatching scaler...\n");
+        } else {
+            struct pl_shader *tsh = pl_dispatch_begin(p->dp);
+
+            if (!pl_shader_sample_ortho(tsh, PL_SEP_VERT, &src, &sampleFilterParams)) {
+                vsapi->logMessage(mtCritical, "Failed dispatching vertical pass!\n");
+                pl_dispatch_abort(p->dp, &tsh);
+            }
+
+            struct pl_sample_src src2 = src;
+            struct pl_tex_params tex_params = {.w = src.tex->params.w, .h = src.new_h, .renderable = true, .sampleable = true, .format = src.tex->params.format, .sample_mode = PL_TEX_SAMPLE_LINEAR};
+
+            if (!pl_tex_recreate(p->gpu, &sep_fbo, &tex_params))
+                vsapi->logMessage(mtCritical, "failed creating intermediate texture!\n");
+
+            src2.tex = sep_fbo;
+            if (!pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = sep_fbo, .shader = &tsh})) {
+                vsapi->logMessage(mtCritical, "Failed rendering vertical pass! \n");
+                return false;
+            }
+
+            if (!pl_shader_sample_ortho(sh, PL_SEP_HORIZ, &src2, &sampleFilterParams))
+                vsapi->logMessage(mtCritical, "Failed dispatching horizontal pass! \n");
+        }
+
+        if (d->sigmoid_params)
+            pl_shader_unsigmoidize(sh, d->sigmoid_params);
+
+        if (d->linear)
+            pl_shader_delinearize(sh, d->trc);
+
+
+        ok &= pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = p->tex_out[i], .shader = &sh});
+        pl_tex_destroy(p->gpu, &sep_fbo);
+        pl_tex_destroy(p->gpu, &sample_fbo);
     }
-
-    if (d->sigmoid_params)
-        pl_shader_unsigmoidize(sh, d->sigmoid_params);
-
-    if (d->linear)
-        pl_shader_delinearize(sh, d->trc);
-
-
-    bool ok = pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = p->tex_out[0], .shader = &sh});
-    pl_tex_destroy(p->gpu, &sep_fbo);
-    pl_tex_destroy(p->gpu, &sample_fbo);
     return ok;
 }
 
-bool reconfig_R(void *priv, struct pl_plane_data *data, int w, int h, const VSAPI *vsapi)
+bool filter_R(void *priv, int process[3], struct pl_plane_data dst[3], struct pl_plane_data src[3], void* data, const VSAPI *vsapi, float sx[3], float sy[3])
 {
     struct priv *p = priv;
-
-    const struct pl_fmt *fmt = pl_plane_find_fmt(p->gpu, NULL, data);
+    RData * d = (RData *) data;
+    // confgiure textures
+    const struct pl_fmt *fmt = pl_plane_find_fmt(p->gpu, NULL, &src[0]);
     if (!fmt) {
         vsapi->logMessage(mtCritical, "Failed configuring filter: no good texture format!\n");
         return false;
     }
 
     bool ok = true;
-    ok &= pl_tex_recreate(p->gpu, &p->tex_in[0], &(struct pl_tex_params) {
-            .w = data->width,
-            .h = data->height,
-            .format = fmt,
-            .sampleable = true,
-            .host_writable = true,
-            .sample_mode = PL_TEX_SAMPLE_LINEAR,
-    });
-
-    ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], &(struct pl_tex_params) {
-            .w = w,
-            .h = h,
-            .format = fmt,
-            .renderable = true,
-            .host_readable = true,
-            .storable = true,
-    });
+    for (int i = 0; i < 3; ++i) {
+        if (!process[i])
+            continue;
+        ok &= pl_tex_recreate(p->gpu, &p->tex_in[i], &(struct pl_tex_params) {
+                .w = src[i].width,
+                .h = src[i].height,
+                .format = fmt,
+                .sampleable = true,
+                .host_writable = true,
+                .sample_mode = PL_TEX_SAMPLE_LINEAR,
+        });
+        ok &= pl_tex_recreate(p->gpu, &p->tex_out[i], &(struct pl_tex_params) {
+                .w = dst[i].width,
+                .h = dst[i].height,
+                .format = fmt,
+                .renderable = true,
+                .host_readable = true,
+                .storable = true,
+        });
+    }
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed creating GPU textures!\n");
         return false;
     }
 
-    return true;
-}
-
-bool filter_R(void *priv, void *dst, struct pl_plane_data *src, void* d, int w, int h, int dst_stride, const VSAPI *vsapi, float sx, float sy)
-{
-    struct priv *p = priv;
-
     // Upload planes
-    bool ok = true;
-    ok &= pl_tex_upload(p->gpu, &(struct pl_tex_transfer_params) {
-            .tex = p->tex_in[0],
-            .stride_w = src->row_stride / src->pixel_stride,
-            .ptr = src->pixels,
-    });
+    for (int i = 0; i < 3; ++i) {
+        if (!process[i])
+            continue;
+        ok &= pl_tex_upload(p->gpu, &(struct pl_tex_transfer_params) {
+                .tex = p->tex_in[i],
+                .stride_w = src[i].row_stride / src[i].pixel_stride,
+                .ptr = src[i].pixels,
+        });
+    }
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed uploading data to the GPU!\n");
         return false;
     }
-    // Process plane
-    if (!do_plane_R(p, d, w, h, vsapi, sx, sy)) {
+
+    // Process planes
+    if (!do_plane_R(p, d, process, vsapi, sx, sy)) {
         vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
 
     // Download planes
-    ok = pl_tex_download(p->gpu, &(struct pl_tex_transfer_params) {
-            .tex = p->tex_out[0],
-            .stride_w = dst_stride,
-            .ptr = dst,
-    });
+    for (int i = 0; i < 3; ++i) {
+        if (!process[i])
+            continue;
+        ok = pl_tex_download(p->gpu, &(struct pl_tex_transfer_params) {
+                .tex = p->tex_out[i],
+                .stride_w = dst[i].row_stride / dst[i].pixel_stride,
+                .ptr = dst[i].pixels,
+        });
+    }
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed downloading data from the GPU!\n");
@@ -203,31 +217,52 @@ static const VSFrameRef *VS_CC ResampleGetFrame(int n, int activationReason, voi
         const VSFrameRef *frame = vsapi->getFrameFilter(n, d->node, frameCtx);
 
         VSFrameRef *dst = vsapi->newVideoFrame(d->vi->format, d->width, d->height, frame, core);
+        struct pl_plane_data planes[3] = {0};
+        struct pl_plane_data dst_planes[3] = {0};
+        float sx[3], sy[3];
+        int process[3] = {1,d->vi->format->numPlanes > 1, d->vi->format->numPlanes > 2};
 
-        for (unsigned int i=0; i < d->vi->format->numPlanes; i++) {
-            struct pl_plane_data plane = {
+        for (int i=0; i < d->vi->format->numPlanes; i++) {
+            planes[i] = (struct pl_plane_data) {
                     .type = d->vi->format->sampleType == stInteger ? PL_FMT_UNORM : PL_FMT_FLOAT,
                     .width = vsapi->getFrameWidth(frame, i),
                     .height = vsapi->getFrameHeight(frame, i),
-                    .pixel_stride = 1 /* components */ * d->vi->format->bytesPerSample /* bytes per sample*/,
+                    .pixel_stride = d->vi->format->bytesPerSample,
                     .row_stride =  vsapi->getStride(frame, i),
-                    .pixels =  vsapi->getWritePtr(frame, i),
+                    .pixels =  vsapi->getReadPtr(frame, i),
                     .component_size[0] = d->vi->format->bitsPerSample,
                     .component_pad[0] = 0,
                     .component_map[0] = 0,
             };
 
-            bool shift = d->vi->format->colorFamily == cmYUV && d->vi->format->subSamplingW == 1 && (i == 1 || i == 2);
-            float subsampling_shift = 0.25f - 0.25f * (float) d->vi->width / (float) d->width; // FIXME: support other subsampling ratios and chroma locations as well
-            float sx = (shift ? subsampling_shift : 0.f) + d->src_x * vsapi->getFrameWidth(frame, i)/d->vi->width;
-            float sy = d->src_y * vsapi->getFrameHeight(frame, i)/d->vi->height;
-            int w = vsapi->getFrameWidth(dst, i), h = vsapi->getFrameHeight(dst, i);
+            dst_planes[i] = (struct pl_plane_data) {
+                    .type = d->vi->format->sampleType == stInteger ? PL_FMT_UNORM : PL_FMT_FLOAT,
+                    .width = vsapi->getFrameWidth(dst, i),
+                    .height = vsapi->getFrameHeight(dst, i),
+                    .pixel_stride = d->vi->format->bytesPerSample,
+                    .row_stride =  vsapi->getStride(dst, i),
+                    .pixels =  vsapi->getWritePtr(dst, i)
+            };
 
-            pthread_mutex_lock(&d->lock);
-            if (reconfig_R(d->vf, &plane, w, h, vsapi))
-                filter_R(d->vf, vsapi->getWritePtr(dst, i), &plane, d, w, h, vsapi->getStride(dst, i) / d->vi->format->bytesPerSample, vsapi, sx, sy);
-            pthread_mutex_unlock(&d->lock);
+            float x_sub_scale = (float) vsapi->getFrameWidth(frame, i) / (float) d->vi->width;
+            float y_sub_scale = (float) vsapi->getFrameHeight(frame, i)/ (float) d->vi->height;
+            float x_scale = (float) d->vi->width / (float) d->width;
+            float y_scale = (float) d->vi->height / (float) d->height;
+            if (i > 0 && d->vi->format->colorFamily == cmYUV) {
+                pl_chroma_location_offset(d->chromaLocation, &sx[i], &sy[i]);
+                sx[i] = (sx[i] * x_sub_scale) * (1 - x_scale);
+                sy[i] = (sy[i] * y_sub_scale) * (1 - y_scale);
+            } else {
+                sx[i] = 0;
+                sy[i] = 0;
+            }
+            sx[i] -= d->src_x * x_sub_scale; // scale shift by subsampling factor for chroma
+            sy[i] -= d->src_y * y_sub_scale;
         }
+
+        pthread_mutex_lock(&d->lock);
+        filter_R(d->vf, process, dst_planes, planes, d, vsapi, sx, sy);
+        pthread_mutex_unlock(&d->lock);
 
         vsapi->freeFrame(frame);
         return dst;
@@ -353,6 +388,9 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
         f->params[1] = vsapi->propGetFloat(in, "param2", 0, &err);
     sampleFilterParams->filter.kernel = f;
 
+    d.chromaLocation = vsapi->propGetInt(in, "chroma_loc", 0, &err);
+    if (err)
+        d.chromaLocation = PL_CHROMA_LEFT;
 
     d.sampleParams = sampleFilterParams;
     data = malloc(sizeof(d));

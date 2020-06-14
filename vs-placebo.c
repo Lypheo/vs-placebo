@@ -85,7 +85,7 @@ void uninit(void *priv)
 VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegisterFunction registerFunc, VSPlugin *plugin) {
     configFunc("com.vs.placebo", "placebo", "libplacebo plugin for VapourSynth", VAPOURSYNTH_API_VERSION, 1, plugin);
     registerFunc("Deband", "clip:clip;planes:int:opt;iterations:int:opt;threshold:float:opt;radius:float:opt;grain:float:opt;dither:int:opt;dither_algo:int:opt;renderer_api:int:opt", DebandCreate, 0, plugin);
-    registerFunc("Resample", "clip:clip;width:int;height:int;filter:data:opt;clamp:float:opt;blur:float:opt;taper:float:opt;radius:float:opt;param1:float:opt;param2:float:opt;"
+    registerFunc("Resample", "clip:clip;width:int;height:int;filter:data:opt;chroma_loc:int:opt;clamp:float:opt;blur:float:opt;taper:float:opt;radius:float:opt;param1:float:opt;param2:float:opt;"
                              "sx:float:opt;sy:float:opt;antiring:float:opt;lut_entries:int:opt;cutoff:float:opt;"
                              "sigmoidize:int:opt;sigmoid_center:float:opt;sigmoid_slope:float:opt;linearize:int:opt;trc:int:opt", ResampleCreate, 0, plugin);
     registerFunc("Tonemap", "clip:clip;"
