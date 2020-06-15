@@ -52,7 +52,6 @@ bool do_plane(struct priv *p, void* data, int chroma)
                 .repr = crpr, .color = (struct pl_color_space) {0}};
         struct pl_render_target out = {.color = (struct pl_color_space) {0}, .repr = crpr, .fbo = p->tex_out[0]};
         struct pl_render_params par = pl_render_default_params;
-        par.skip_redraw_caching = true;
         par.deband_params = d->debandParams;
         par.dither_params = d->dither ? d->ditherParams : NULL;
 
