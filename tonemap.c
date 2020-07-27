@@ -228,6 +228,7 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
     COLORM_PARAM(max_boost, Float)
     COLORM_PARAM(gamut_warning, Int)
     COLORM_PARAM(intent, Int)
+    COLORM_PARAM(gamut_clipping, Int)
 
     struct pl_peak_detect_params *peakDetectParams = malloc(sizeof(struct pl_peak_detect_params));
 #define PEAK_PARAM(par, type) peakDetectParams->par = vsapi->propGet##type(in, #par, 0, &err); \
