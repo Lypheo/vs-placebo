@@ -243,23 +243,37 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
     }
 
     char* sh = vsapi->propGetData(in, "shader", 0, &err);
-    FILE* fl = fopen(sh, "r");
-    if (fl == NULL) {
-        perror("Failed: ");
-        vsapi->setError(out, "placebo.Shader: Failed reading shader file!");
-        return;
+    char *shader;
+    long fsize;
+    if (!err) {
+        FILE *fl = fopen(sh, "r");
+        if (fl == NULL) {
+            perror("Failed: ");
+            vsapi->setError(out, "placebo.Shader: Failed reading shader file!");
+            return;
+        }
+
+        fseek(fl, 0, SEEK_END);
+        fsize = ftell(fl);
+        fseek(fl, 0, SEEK_SET);
+        shader = malloc(fsize + 1);
+        fread(shader, 1, fsize, fl);
+        fclose(fl);
+        shader[fsize] = 0;
+    } else {
+        char* shader_s = vsapi->propGetData(in, "shader_s", 0, &err);
+        if (err) {
+            vsapi->setError(out, "placebo.Shader: Either shader or shader_s must be specified!");
+            return;
+        }
+        fsize =  strlen(shader_s);
+        shader = malloc(fsize + 1);
+        strcpy(shader, shader_s);
     }
 
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
 
-    fseek(fl, 0, SEEK_END);
-    long fsize = ftell(fl);
-    fseek(fl, 0, SEEK_SET);
-    char *shader = malloc(fsize + 1);
-    fread(shader, 1, fsize, fl);
-    fclose(fl);
-    shader[fsize] = 0;
     d.vf = init();
     d.shader = pl_mpv_user_shader_parse(d.vf->gpu, shader, fsize);
     free(shader);

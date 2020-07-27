@@ -42,7 +42,7 @@ When sigmodizing, ``linearize`` should be True as well. (Currently mangles HDR v
 - ``sigmoid_center, sigmoid_slope``: Sigmoid curve parameters.
 - ``trc``: The [transfer curve](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/colorspace.h#L183) to use for linearizing.
 
-#### ``placebo.Shader(clip clip, string shader[, int width, int height, int chroma_loc = 1, int matrix = 2, int trc = 1, string filter = "ewa_lanczos", float radius, float clamp, float taper, float blur, float param1, float param2, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001, bool sigmoidize = 1, bool linearize = 1, float sigmoid_center = 0.75, float sigmoid_slope = 6.5])``
+#### ``placebo.Shader(clip clip, [string shader, int width, int height, int chroma_loc = 1, int matrix = 2, int trc = 1, string filter = "ewa_lanczos", float radius, float clamp, float taper, float blur, float param1, float param2, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001, bool sigmoidize = 1, bool linearize = 1, float sigmoid_center = 0.75, float sigmoid_slope = 6.5, string shader_s])``
 
 Runs a GLSL shader in [mpv syntax](https://mpv.io/manual/master/#options-glsl-shader).
 
@@ -57,6 +57,7 @@ For example, if a shader hooks into the LINEAR texture,
 it will only be executed when ``linearize = True``. 
 
 - ``shader``: Path to shader file.
+- ``shader_s``: Alternatively, String containing the shader. (``shader`` takes precedence.)
 - ``width, height``: Output dimensions. Need to be specified for scaling shaders to be run. 
 Any planes the shader doesn’t scale appropiately will be scaled to output res by libplacebo
 using the supplied filter options, which are identical to ``Resample``’s.
@@ -64,7 +65,7 @@ using the supplied filter options, which are identical to ``Resample``’s.
 (or the source luma res); then the image will be scaled to output res in RGB and converted back to YUV.)
 - ``chroma_loc``: Chroma location to derive chroma shift from. Uses [pl_chroma_location](https://github.com/haasn/libplacebo/blob/524e3965c6f8f976b3f8d7d82afe3083d61a7c4d/src/include/libplacebo/colorspace.h#L332) enum values.
 - ``matrix``: [YUV matrix](https://github.com/haasn/libplacebo/blob/524e3965c6f8f976b3f8d7d82afe3083d61a7c4d/src/include/libplacebo/colorspace.h#L26).
-- ``sigmoidize, linearize, sigmoid_center, sigmoid_slope,trc``: For shaders that hook into the LINEARIZE or SIGMOID texture.
+- ``sigmoidize, linearize, sigmoid_center, sigmoid_slope, trc``: For shaders that hook into the LINEAR or SIGMOID texture.
 
 
 ### Installing
