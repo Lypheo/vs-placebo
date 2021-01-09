@@ -259,7 +259,7 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
         shader = malloc(fsize + 1);
         fread(shader, 1, fsize, fl);
         fclose(fl);
-        shader[fsize] = 0;
+        shader[fsize] = '\0';
     } else {
         char* shader_s = vsapi->propGetData(in, "shader_s", 0, &err);
         if (err) {
@@ -275,7 +275,7 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
     d.vi = vsapi->getVideoInfo(d.node);
 
     d.vf = init();
-    d.shader = pl_mpv_user_shader_parse(d.vf->gpu, shader, fsize);
+    d.shader = pl_mpv_user_shader_parse(d.vf->gpu, shader, strlen(shader));
     free(shader);
 
     if (!d.shader) {
