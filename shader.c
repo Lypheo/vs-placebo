@@ -117,6 +117,10 @@ bool filter_S(void *priv, void *dst, struct pl_plane_data *src,  SData* d, int n
     bool ok = true;
 
     for (int i = 0; i < 3; ++i) {
+        // Initialize because they're not set to 0 anymore
+        planes[i].shift_x = 0;
+        planes[i].shift_y = 0;
+
         ok &= pl_upload_plane(p->gpu, &planes[i], &p->tex_in[i], &src[i]);
     }
 
@@ -345,7 +349,6 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
     FILTER_ELIF(ewa_jinc)
     FILTER_ELIF(ewa_ginseng)
     FILTER_ELIF(ewa_hann)
-    FILTER_ELIF(haasnsoft)
     FILTER_ELIF(bicubic)
     FILTER_ELIF(catmull_rom)
     FILTER_ELIF(mitchell)
