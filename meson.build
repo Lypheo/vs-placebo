@@ -4,9 +4,7 @@ project('vs-placebo', ['c', 'cpp'],
     version: '1.2'
 )
 
-cc = meson.get_compiler('c')
-
-placebo = cc.find_library('placebo', required: true)
+placebo = dependency('libplacebo', required: true)
 vapoursynth_dep = dependency('vapoursynth').partial_dependency(includes: true, compile_args: true)
 
 sources = ['vs-placebo.c', 'deband.c', 'tonemap.c', 'resample.c', 'shader.c']
