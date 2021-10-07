@@ -6,38 +6,27 @@
 #include <libplacebo/utils/upload.h>
 #include <libplacebo/vulkan.h>
 
-struct format {
-    int num_comps;
-    int bitdepth;
-};
-
-struct plane {
-    int subx, suby; // subsampling shift
-    struct format fmt;
-    size_t stride;
-    void *data;
-};
-
 #define MAX_PLANES 4
 
-struct image {
-    int width, height;
-    int num_planes;
-    struct plane planes[MAX_PLANES];
-};
-
 struct priv {
-    struct pl_context *ctx;
-    const struct pl_vulkan *vk;
-    const struct pl_gpu *gpu;
-    struct pl_dispatch *dp;
-    struct pl_shader_obj *dither_state;
-    struct pl_renderer *rr;
-    const struct pl_tex *tex_in[MAX_PLANES];
-    const struct pl_tex *tex_out[MAX_PLANES];
+    pl_log log;
+    pl_vulkan vk;
+    pl_gpu gpu;
+    pl_dispatch dp;
+    pl_shader_obj dither_state;
+    pl_tex tex_in[MAX_PLANES];
+    pl_tex tex_out[MAX_PLANES];
+    pl_renderer rr;
 };
 
 void *init(void);
 void uninit(void *priv);
+
+#define GetIntDefault(prop, def) vsapi->mapGetInt(props, #prop, 0, &err) || (err ? (def) : 0)
+
+int vs_to_pl_matrix(int matrix);
+int vs_to_pl_trc(int trc);
+int vs_to_pl_prm(int prim);
+
 
 #endif //VS_PLACEBO_LIBRARY_H

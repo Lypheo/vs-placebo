@@ -7,7 +7,7 @@ project('vs-placebo', ['c', 'cpp'],
 placebo = dependency('libplacebo', required: true)
 vapoursynth_dep = dependency('vapoursynth').partial_dependency(includes: true, compile_args: true)
 
-sources = ['vs-placebo.c', 'deband.c', 'tonemap.c', 'resample.c', 'shader.c']
+sources = ['vs-placebo.c', 'render.c']
 
 p2p = static_library('p2p', ['libp2p/p2p_api.cpp', 'libp2p/v210.cpp'], pic: true)
 
