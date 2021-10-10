@@ -27,11 +27,12 @@ struct image {
 };
 
 struct priv {
-    struct pl_context *ctx;
-    const struct pl_vulkan *vk;
-    const struct pl_gpu *gpu;
-    struct pl_dispatch *dp;
-    struct pl_shader_obj *dither_state;
+    pl_log log;
+    pl_vulkan vk;
+    pl_gpu gpu;
+    pl_dispatch dp;
+    pl_shader_obj dither_state;
+
     struct pl_renderer *rr;
     const struct pl_tex *tex_in[MAX_PLANES];
     const struct pl_tex *tex_out[MAX_PLANES];

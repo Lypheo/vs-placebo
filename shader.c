@@ -45,9 +45,24 @@ bool do_plane_S(struct priv *p, void* data, int n, struct pl_plane* planes)
                                               .sys = d->matrix, .levels = d->range};
     const struct pl_color_space csp = {.transfer = d->trc};
 
-    struct pl_image img = {.signature = n, .num_planes = 3, .repr = crpr,
-                           .planes = {planes[0], planes[1], planes[2]}, .color = csp};
-    struct pl_render_target out = {.repr = crpr, .fbo = p->tex_out[0], .color = csp};
+    struct pl_frame img = {
+        .num_planes = 3,
+        .repr = crpr,
+        .planes = {planes[0], planes[1], planes[2]},
+        .color = csp,
+    };
+
+    struct pl_frame out = {
+        .num_planes = 1,
+        .planes = {{
+            .texture = p->tex_out[0],
+            .components = p->tex_out[0]->params.format->num_components,
+            .component_mapping = {0, 1, 2, 3},
+        }},
+        .repr = crpr,
+        .color = csp,
+    };
+
     struct pl_render_params renderParams = {
             .hooks = &d->shader, .num_hooks = 1,
             .sigmoid_params = d->sigmoid_params,
@@ -82,16 +97,18 @@ bool config_S(void *priv, struct pl_plane_data *data, const VSAPI *vsapi, SData*
                 .format = fmt[i],
                 .sampleable = true,
                 .host_writable = true,
-                .sample_mode = PL_TEX_SAMPLE_LINEAR,
         });
     }
 
-    struct pl_fmt *out = pl_plane_find_fmt(p->gpu, NULL,
-       &(struct pl_plane_data) {.type = PL_FMT_UNORM,
-               .component_map = {0,1,2},
-               .component_pad = {0,0,0,0},
-               .component_size = {16, 16, 16, 0},
-               .pixel_stride = 6});
+    const struct pl_plane_data plane_data = {
+        .type = PL_FMT_UNORM,
+        .component_map = {0, 1, 2, 0},
+        .component_pad = {0, 0, 0, 0},
+        .component_size = {16, 16, 16, 0},
+        .pixel_stride = 6
+    };
+
+    const struct pl_fmt *out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
 
     ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], &(struct pl_tex_params) {
             .w = d->width,
@@ -113,14 +130,10 @@ bool filter_S(void *priv, void *dst, struct pl_plane_data *src,  SData* d, int n
 {
     struct priv *p = priv;
     // Upload planes
-    struct pl_plane planes[4];
+    struct pl_plane planes[4] = {0};
     bool ok = true;
 
     for (int i = 0; i < 3; ++i) {
-        // Initialize because they're not set to 0 anymore
-        planes[i].shift_x = 0;
-        planes[i].shift_y = 0;
-
         ok &= pl_upload_plane(p->gpu, &planes[i], &p->tex_in[i], &src[i]);
     }
 
@@ -168,7 +181,8 @@ static const VSFrameRef *VS_CC SGetFrame(int n, int activationReason, void **ins
         const VSFrameRef *frame = vsapi->getFrameFilter(n, d->node, frameCtx);
 
         if (d->range == -1) {
-            VSMap *props = vsapi->getFramePropsRO(frame);
+            const VSMap *props = vsapi->getFramePropsRO(frame);
+
             int err = 0;
             int r = vsapi->propGetInt(props, "_ColorRange", 0, &err);
             if (err)
@@ -177,8 +191,9 @@ static const VSFrameRef *VS_CC SGetFrame(int n, int activationReason, void **ins
                 d->range = r ? PL_COLOR_LEVELS_TV : PL_COLOR_LEVELS_PC;
         }
 
-        VSFormat *dstfmt = d->vi->format;
+        const VSFormat *dstfmt = d->vi->format;
         dstfmt = vsapi->registerFormat(dstfmt->colorFamily, dstfmt->sampleType, dstfmt->bitsPerSample, 0, 0, core);
+
         VSFrameRef *dst = vsapi->newVideoFrame(dstfmt, d->width, d->height, frame, core);
 
         struct pl_plane_data planes[4];
@@ -189,7 +204,7 @@ static const VSFrameRef *VS_CC SGetFrame(int n, int activationReason, void **ins
                     .height = vsapi->getFrameHeight(frame, j),
                     .pixel_stride = 1 * 2,
                     .row_stride =  vsapi->getStride(frame, j),
-                    .pixels =  vsapi->getWritePtr(frame, j),
+                    .pixels =  vsapi->getWritePtr((VSFrameRef *) frame, j),
             };
 
             planes[j].component_size[0] = 16;
@@ -228,7 +243,7 @@ static void VS_CC SFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
     SData *d = (SData *)instanceData;
     vsapi->freeNode(d->node);
     pl_mpv_user_shader_destroy(&d->shader);
-    free(d->sampleParams->filter.kernel);
+    free((void *) d->sampleParams->filter.kernel);
     free(d->sampleParams);
     free(d->sigmoid_params);
     uninit(d->vf);
@@ -246,9 +261,10 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
         return;
     }
 
-    char* sh = vsapi->propGetData(in, "shader", 0, &err);
+    const char* sh = vsapi->propGetData(in, "shader", 0, &err);
     char *shader;
     long fsize;
+
     if (!err) {
         FILE *fl = fopen(sh, "r");
         if (fl == NULL) {
@@ -265,7 +281,8 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
         fclose(fl);
         shader[fsize] = '\0';
     } else {
-        char* shader_s = vsapi->propGetData(in, "shader_s", 0, &err);
+        const char* shader_s = vsapi->propGetData(in, "shader_s", 0, &err);
+
         if (err) {
             vsapi->setError(out, "placebo.Shader: Either shader or shader_s must be specified!");
             return;
@@ -319,21 +336,29 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
     if (err) d.trc = 1;
 
     struct pl_sigmoid_params *sigmoidParams = malloc(sizeof(struct pl_sigmoid_params));
+
     sigmoidParams->center = vsapi->propGetFloat(in, "sigmoid_center", 0, &err);
-    if (err) sigmoidParams->center = pl_sigmoid_default_params.center;
+    if (err)
+        sigmoidParams->center = pl_sigmoid_default_params.center;
+
     sigmoidParams->slope = vsapi->propGetFloat(in, "sigmoid_slope", 0, &err);
-    if (err) sigmoidParams->slope = pl_sigmoid_default_params.slope;
+    if (err)
+        sigmoidParams->slope = pl_sigmoid_default_params.slope;
+
     bool sigm = vsapi->propGetInt(in, "sigmoidize", 0, &err);
-    if (err) sigm = true;
+    if (err)
+        sigm = true;
     d.sigmoid_params = sigm ? sigmoidParams : NULL;
 
 
-    struct pl_sample_filter_params *sampleFilterParams = calloc(1, sizeof(struct pl_sample_filter_params));;
+    struct pl_sample_filter_params *sampleFilterParams = calloc(1, sizeof(struct pl_sample_filter_params));
 
     sampleFilterParams->lut_entries = vsapi->propGetInt(in, "lut_entries", 0, &err);
     sampleFilterParams->cutoff = vsapi->propGetFloat(in, "cutoff", 0, &err);
     sampleFilterParams->antiring = vsapi->propGetFloat(in, "antiring", 0, &err);
-    char * filter = vsapi->propGetData(in, "filter", 0, &err);
+
+    const char * filter = vsapi->propGetData(in, "filter", 0, &err);
+
     if (!filter) filter = "ewa_lanczos";
 #define FILTER_ELIF(name) else if (strcmp(filter, #name) == 0) sampleFilterParams->filter = pl_filter_##name;
     if (strcmp(filter, "spline16") == 0)
@@ -361,22 +386,27 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
         vsapi->logMessage(mtWarning, "Unkown filter... selecting ewa_lanczos.\n");
         sampleFilterParams->filter = pl_filter_ewa_lanczos;
     }
+
     sampleFilterParams->filter.clamp = vsapi->propGetFloat(in, "clamp", 0, &err);
     sampleFilterParams->filter.blur = vsapi->propGetFloat(in, "blur", 0, &err);
     sampleFilterParams->filter.taper = vsapi->propGetFloat(in, "taper", 0, &err);
     struct pl_filter_function *f = calloc(1, sizeof(struct pl_filter_function));
     *f = *sampleFilterParams->filter.kernel;
+
     if (f->resizable) {
         vsapi->propGetFloat(in, "radius", 0, &err);
         if (!err)
             f->radius = vsapi->propGetFloat(in, "radius", 0, &err);
     }
+
     vsapi->propGetFloat(in, "param1", 0, &err);
     if (!err && f->tunable[0])
         f->params[0] = vsapi->propGetFloat(in, "param1", 0, &err);
+
     vsapi->propGetFloat(in, "param2", 0, &err);
     if (!err && f->tunable[1])
         f->params[1] = vsapi->propGetFloat(in, "param2", 0, &err);
+
     sampleFilterParams->filter.kernel = f;
 
     d.sampleParams = sampleFilterParams;

@@ -14,20 +14,17 @@
 
 #include "vs-placebo.h"
 
-void logging(void *log_priv, enum pl_log_level level, const char *msg) {
-    printf("%s\n", msg);
-}
-
 void *init(void) {
     struct priv *p = calloc(1, sizeof(struct priv));
     if (!p)
         return NULL;
 
-    p->ctx = pl_context_create(PL_API_VER, &(struct pl_context_params) {
-        .log_cb = logging,
+    p->log = pl_log_create(PL_API_VER, &(struct pl_log_params) {
+        .log_cb = pl_log_color,
         .log_level = PL_LOG_ERR
     });
-    if (!p->ctx) {
+
+    if (!p->log) {
         fprintf(stderr, "Failed initializing libplacebo\n");
         goto error;
     }
@@ -36,7 +33,7 @@ void *init(void) {
     struct pl_vk_inst_params ip = pl_vk_inst_default_params;
 //    ip.debug = true;
     vp.instance_params = &ip;
-    p->vk = pl_vulkan_create(p->ctx, &vp);
+    p->vk = pl_vulkan_create(p->log, &vp);
 
     if (!p->vk) {
         fprintf(stderr, "Failed creating vulkan context\n");
@@ -46,13 +43,13 @@ void *init(void) {
     // Give this a shorter name for convenience
     p->gpu = p->vk->gpu;
 
-    p->dp = pl_dispatch_create(p->ctx, p->gpu);
+    p->dp = pl_dispatch_create(p->log, p->gpu);
     if (!p->dp) {
         fprintf(stderr, "Failed creating shader dispatch object\n");
         goto error;
     }
 
-    p->rr = pl_renderer_create(p->ctx, p->gpu);
+    p->rr = pl_renderer_create(p->log, p->gpu);
     if (!p->rr) {
         fprintf(stderr, "Failed creating renderer\n");
         goto error;
@@ -77,7 +74,7 @@ void uninit(void *priv)
     pl_shader_obj_destroy(&p->dither_state);
     pl_dispatch_destroy(&p->dp);
     pl_vulkan_destroy(&p->vk);
-    pl_context_destroy(&p->ctx);
+    pl_log_destroy(&p->log);
 
     free(p);
 }
