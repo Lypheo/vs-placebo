@@ -31,10 +31,31 @@ bool do_plane_TM(struct priv *p, void* data, int n)
     static const struct pl_color_repr crpr = {.bits = {.sample_depth = 16, .color_depth = 16, .bit_shift = 0},
                                               .levels = PL_COLOR_LEVELS_PC, .alpha = PL_ALPHA_UNKNOWN, .sys = PL_COLOR_SYSTEM_RGB};
 
-    struct pl_image img = {.signature = n, .num_planes = 3, .width = d->vi->width, .height = d->vi->height,
-                           .planes[0] = planes[0], .planes[1] = planes[1], .planes[2] = planes[2],
-                           .repr = crpr, .color = *d->src_csp};
-    struct pl_render_target out = {.color = *d->dst_csp, .repr = crpr, .fbo = p->tex_out[0]};
+    int src_w = d->vi->width;
+    int src_h = d->vi->height;
+
+    struct pl_frame img = {
+        .num_planes = 3,
+        .planes     = {planes[0], planes[1], planes[2]},
+        .repr       = crpr,
+        .color      = *d->src_csp,
+        .crop       = {0, 0, src_w, src_h},
+    };
+
+    struct pl_frame out = {
+        .num_planes = 1,
+        .planes = {{
+            .texture = p->tex_out[0],
+            .components = p->tex_out[0]->params.format->num_components,
+            .component_mapping = {0, 1, 2, 3},
+        }},
+        .repr = crpr,
+        .color = *d->dst_csp,
+        .crop = {0, 0, src_w, src_h},
+    };
+
+    pl_rect2df_aspect_copy(&out.crop, &img.crop, 0.0);
+
     return pl_render_image(p->rr, &img, &out, d->renderParams);
 }
 
@@ -56,15 +77,21 @@ bool config_TM(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
                 .format = fmt,
                 .sampleable = true,
                 .host_writable = true,
-                .sample_mode = PL_TEX_SAMPLE_LINEAR,
         });
     }
 
-    struct pl_fmt *out = pl_plane_find_fmt(p->gpu, NULL,
-                                           &(struct pl_plane_data) {.type = PL_FMT_UNORM, .component_map[0] = 0, .component_map[1] = 1, .component_map[2] = 2,
-                                                   .component_pad[0] = 0, .component_pad[1] = 0, .component_pad[2] = 0,
-                                                   .component_size[0] = 16, .component_size[1] = 16, .component_size[2] = 16,
-                                                   .width = 10, .height = 10, .row_stride = 60, .pixel_stride = 6});
+    const struct pl_plane_data plane_data = {
+        .type = PL_FMT_UNORM,
+        .component_map = {0, 1, 2, 0},
+        .component_pad = {0, 0, 0, 0},
+        .component_size = {16, 16, 16, 0},
+        .width = 10,
+        .height = 10,
+        .row_stride = 60,
+        .pixel_stride = 6
+    };
+
+    const struct pl_fmt *out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
 
     ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], &(struct pl_tex_params) {
             .w = data->width,
@@ -92,7 +119,7 @@ bool filter_TM(void *priv, void *dst, struct pl_plane_data *src, void* d, int n,
         ok &= pl_tex_upload(p->gpu, &(struct pl_tex_transfer_params) {
                 .tex = p->tex_in[i],
                 .stride_w = src->row_stride / src->pixel_stride,
-                .ptr = src[i].pixels,
+                .ptr = (void *) src[i].pixels,
         });
     }
     if (!ok) {
@@ -149,7 +176,7 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
                     .height = ih,
                     .pixel_stride = 1 /* components */ * 2 /* bytes per sample*/,
                     .row_stride =  stride,
-                    .pixels =  vsapi->getWritePtr(frame, j),
+                    .pixels =  vsapi->getWritePtr((VSFrameRef *) frame, j),
             };
 
             planes[j].component_size[0] = 16;
@@ -189,8 +216,8 @@ static void VS_CC TMFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
     uninit(d->vf);
     free(d->dst_csp);
     free(d->src_csp);
-    free(d->renderParams->peak_detect_params);
-    free(d->renderParams->color_map_params);
+    free((void *) d->renderParams->peak_detect_params);
+    free((void *) d->renderParams->color_map_params);
     free(d->renderParams);
     pthread_mutex_destroy(&d->lock);
     free(d);

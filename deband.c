@@ -38,19 +38,48 @@ bool do_plane(struct priv *p, void* data, int chroma)
         });
 
     } else {
+        struct pl_color_repr crpr = {
+            .bits = {
+                .sample_depth = d->vi->format->bytesPerSample * 8,
+                .color_depth = d->vi->format->bytesPerSample * 8,
+                .bit_shift = 0
+            },
+            .levels = PL_COLOR_LEVELS_UNKNOWN,
+            .alpha = PL_ALPHA_UNKNOWN,
+            .sys = PL_COLOR_SYSTEM_UNKNOWN
+        };
 
-        struct pl_plane plane = (struct pl_plane) {.texture = p->tex_in[0], .components = 1, .component_mapping[0] = 0};
+        int src_w = d->vi->width >> (chroma ? d->vi->format->subSamplingW : 0);
+        int src_h = d->vi->height >> (chroma ? d->vi->format->subSamplingH : 0);
 
-        struct pl_color_repr crpr = {.bits = {.sample_depth = d->vi->format->bytesPerSample * 8, .color_depth =
-        d->vi->format->bytesPerSample * 8, .bit_shift = 0},
-                .levels = PL_COLOR_LEVELS_UNKNOWN, .alpha = PL_ALPHA_UNKNOWN, .sys = PL_COLOR_SYSTEM_UNKNOWN};
+        struct pl_color_space color = (struct pl_color_space) {0};
 
-        struct pl_image img = {.num_planes = 1,
-                .width = d->vi->width >> (chroma ? d->vi->format->subSamplingW : 0),
-                .height = d->vi->height >> (chroma ? d->vi->format->subSamplingH : 0),
-                .planes[0] = plane,
-                .repr = crpr, .color = (struct pl_color_space) {0}};
-        struct pl_render_target out = {.color = (struct pl_color_space) {0}, .repr = crpr, .fbo = p->tex_out[0]};
+        struct pl_frame img = {
+            .num_planes = 1,
+            .planes = {{
+                .texture = p->tex_in[0],
+                .components = p->tex_in[0]->params.format->num_components,
+                .component_mapping = {0, 1, 2, 3},
+            }},
+            .repr = crpr,
+            .color = color,
+            .crop = {0, 0, src_w, src_h},
+        };
+
+        struct pl_frame out = {
+            .num_planes = 1,
+            .planes = {{
+                .texture = p->tex_out[0],
+                .components = p->tex_out[0]->params.format->num_components,
+                .component_mapping = {0, 1, 2, 3},
+            }},
+            .repr = crpr,
+            .color = color,
+            .crop = {0, 0, src_w, src_h},
+        };
+
+        pl_rect2df_aspect_copy(&out.crop, &img.crop, 0.0);
+
         struct pl_render_params par = pl_render_default_params;
         par.deband_params = d->debandParams;
         par.dither_params = d->dither ? d->ditherParams : NULL;
@@ -77,7 +106,6 @@ bool reconfig(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
             .format = fmt,
             .sampleable = true,
             .host_writable = true,
-            .sample_mode = PL_TEX_SAMPLE_LINEAR,
     });
 
     ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], &(struct pl_tex_params) {
@@ -103,9 +131,9 @@ bool filter(void *priv, void *dst, struct pl_plane_data *src, void* d, const VSA
     // Upload planes
     bool ok = true;
     ok &= pl_tex_upload(p->gpu, &(struct pl_tex_transfer_params) {
-            .tex = p->tex_in[0],
-            .stride_w = src->row_stride / src->pixel_stride,
-            .ptr = src->pixels,
+        .tex = p->tex_in[0],
+        .stride_w = src->row_stride / src->pixel_stride,
+        .ptr = (void *) src->pixels,
     });
 
     if (!ok) {
@@ -121,9 +149,9 @@ bool filter(void *priv, void *dst, struct pl_plane_data *src, void* d, const VSA
 
     // Download planes
     ok = pl_tex_download(p->gpu, &(struct pl_tex_transfer_params) {
-            .tex = p->tex_out[0],
-            .stride_w = src->row_stride / src->pixel_stride,
-            .ptr = dst,
+        .tex = p->tex_out[0],
+        .stride_w = src->row_stride / src->pixel_stride,
+        .ptr = dst,
     });
 
     if (!ok) {
@@ -159,7 +187,7 @@ static const VSFrameRef *VS_CC DebandGetFrame(int n, int activationReason, void 
 
         for (int i=0; i<d->vi->format->numPlanes; i++) {
             if (copy[i]) {
-                vs_bitblt(vsapi->getWritePtr(dst, i), vsapi->getStride(dst, i), vsapi->getWritePtr(frame, i),
+                vs_bitblt(vsapi->getWritePtr(dst, i), vsapi->getStride(dst, i), vsapi->getWritePtr((VSFrameRef *) frame, i),
                           vsapi->getStride(frame, i), vsapi->getFrameWidth(dst, i) * d->vi->format->bytesPerSample,
                           vsapi->getFrameHeight(dst, i));
             } else {
@@ -169,7 +197,7 @@ static const VSFrameRef *VS_CC DebandGetFrame(int n, int activationReason, void 
                         .height = vsapi->getFrameHeight(frame, i),
                         .pixel_stride = 1 /* components */ * d->vi->format->bytesPerSample /* bytes per sample*/,
                         .row_stride =  vsapi->getStride(frame, i),
-                        .pixels =  vsapi->getWritePtr(frame, i),
+                        .pixels =  vsapi->getWritePtr((VSFrameRef *) frame, i),
                         .component_size[0] = d->vi->format->bitsPerSample,
                         .component_pad[0] = 0,
                         .component_map[0] = 0,

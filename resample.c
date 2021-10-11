@@ -32,23 +32,36 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
     struct pl_shader *sh = pl_dispatch_begin(p->dp);
     const struct pl_tex *sample_fbo = NULL;
     const struct pl_tex *sep_fbo = NULL;
-    struct pl_sample_src src = (struct pl_sample_src){ .tex = p->tex_in[0]};
     struct pl_sample_filter_params sampleFilterParams = *d->sampleParams;
     sampleFilterParams.lut = &d->lut;
+
+    struct pl_color_space color = (struct pl_color_space) {
+        .transfer = d->trc
+    };
+
+    struct pl_sample_src src = (struct pl_sample_src) {
+        .tex = p->tex_in[0]
+    };
 
     //
     // linearization and sigmoidization
     //
 
     struct pl_shader *ish = pl_dispatch_begin(p->dp);
-    struct pl_tex_params tex_params = {.w = src.tex->params.w, .h = src.tex->params.h, .renderable = true, .sampleable = true, .format = src.tex->params.format, .sample_mode = PL_TEX_SAMPLE_LINEAR};
+    struct pl_tex_params tex_params = {
+        .w = src.tex->params.w,
+        .h = src.tex->params.h,
+        .renderable = true,
+        .sampleable = true,
+        .format = src.tex->params.format
+    };
 
     if (!pl_tex_recreate(p->gpu, &sample_fbo, &tex_params))
         vsapi->logMessage(mtCritical, "failed creating intermediate color texture!\n");
 
     pl_shader_sample_direct(ish, &src);
     if (d->linear)
-        pl_shader_linearize(ish, d->trc);
+        pl_shader_linearize(ish, color);
 
     if (d->sigmoid_params)
         pl_shader_sigmoidize(ish, d->sigmoid_params);
@@ -84,7 +97,13 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
         }
 
         struct pl_sample_src src2 = src;
-        struct pl_tex_params tex_params = {.w = src.tex->params.w, .h = src.new_h, .renderable = true, .sampleable = true, .format = src.tex->params.format, .sample_mode = PL_TEX_SAMPLE_LINEAR};
+        struct pl_tex_params tex_params = {
+            .w = src.tex->params.w,
+            .h = src.new_h,
+            .renderable = true,
+            .sampleable = true,
+            .format = src.tex->params.format,
+        };
 
         if (!pl_tex_recreate(p->gpu, &sep_fbo, &tex_params))
             vsapi->logMessage(mtCritical, "failed creating intermediate texture!\n");
@@ -103,7 +122,7 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
         pl_shader_unsigmoidize(sh, d->sigmoid_params);
 
     if (d->linear)
-        pl_shader_delinearize(sh, d->trc);
+        pl_shader_linearize(sh, color);
 
 
     bool ok = pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = p->tex_out[0], .shader = &sh});
@@ -148,7 +167,6 @@ bool reconfig_R(void *priv, struct pl_plane_data *data, int w, int h, const VSAP
             .format = fmt,
             .sampleable = true,
             .host_writable = true,
-            .sample_mode = PL_TEX_SAMPLE_LINEAR,
     });
 
     ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], &(struct pl_tex_params) {
@@ -177,7 +195,7 @@ bool filter_R(void *priv, void *dst, struct pl_plane_data *src, void* d, int w, 
     ok &= pl_tex_upload(p->gpu, &(struct pl_tex_transfer_params) {
             .tex = p->tex_in[0],
             .stride_w = src->row_stride / src->pixel_stride,
-            .ptr = src->pixels,
+            .ptr = (void *) src->pixels,
     });
 
     if (!ok) {
@@ -230,7 +248,7 @@ static const VSFrameRef *VS_CC ResampleGetFrame(int n, int activationReason, voi
                     .height = vsapi->getFrameHeight(frame, i),
                     .pixel_stride = 1 /* components */ * d->vi->format->bytesPerSample /* bytes per sample*/,
                     .row_stride =  vsapi->getStride(frame, i),
-                    .pixels =  vsapi->getWritePtr(frame, i),
+                    .pixels =  vsapi->getWritePtr((VSFrameRef *) frame, i),
                     .component_size[0] = d->vi->format->bitsPerSample,
                     .component_pad[0] = 0,
                     .component_map[0] = 0,
@@ -259,7 +277,7 @@ static void VS_CC ResampleFree(void *instanceData, VSCore *core, const VSAPI *vs
     RData *d = (RData *)instanceData;
     vsapi->freeNode(d->node);
     pl_shader_obj_destroy(&d->lut);
-    free(d->sampleParams->filter.kernel);
+    free((void *) d->sampleParams->filter.kernel);
     free(d->sampleParams);
     free(d->sigmoid_params);
     uninit(d->vf);
@@ -302,17 +320,25 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     if (err) d.linear = d.vi->format->colorFamily == cmRGB;
     // allow linearizing Gray manually, though, if the user knows what he’s doing
     d.linear = d.linear && (d.vi->format->colorFamily == cmRGB || d.vi->format->colorFamily == cmGray);
+
     d.trc = vsapi->propGetInt(in, "trc", 0, &err);
     if (err) d.trc = 1;
 
     struct pl_sigmoid_params *sigmoidParams = malloc(sizeof(struct pl_sigmoid_params));
+
     sigmoidParams->center = vsapi->propGetFloat(in, "sigmoid_center", 0, &err);
-    if (err) sigmoidParams->center = pl_sigmoid_default_params.center;
+    if (err)
+        sigmoidParams->center = pl_sigmoid_default_params.center;
+
     sigmoidParams->slope = vsapi->propGetFloat(in, "sigmoid_slope", 0, &err);
-    if (err) sigmoidParams->slope = pl_sigmoid_default_params.slope;
+    if (err)
+        sigmoidParams->slope = pl_sigmoid_default_params.slope;
+
     // same reasoning as with linear
     bool sigm = vsapi->propGetInt(in, "sigmoidize", 0, &err);
-    if (err) sigm = d.vi->format->colorFamily == cmRGB;
+    if (err)
+        sigm = d.vi->format->colorFamily == cmRGB;
+
     sigm = sigm && (d.vi->format->colorFamily == cmRGB || d.vi->format->colorFamily == cmGray);
     d.sigmoid_params = sigm ? sigmoidParams : NULL;
 
@@ -325,7 +351,9 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     sampleFilterParams->lut_entries = vsapi->propGetInt(in, "lut_entries", 0, &err);
     sampleFilterParams->cutoff = vsapi->propGetFloat(in, "cutoff", 0, &err);
     sampleFilterParams->antiring = vsapi->propGetFloat(in, "antiring", 0, &err);
-    char * filter = vsapi->propGetData(in, "filter", 0, &err);
+
+    const char * filter = vsapi->propGetData(in, "filter", 0, &err);
+
     if (!filter) filter = "ewa_lanczos";
 #define FILTER_ELIF(name) else if (strcmp(filter, #name) == 0) sampleFilterParams->filter = pl_filter_##name;
     if (strcmp(filter, "spline16") == 0)
@@ -353,27 +381,33 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
         vsapi->logMessage(mtWarning, "Unkown filter... selecting ewa_lanczos.\n");
         sampleFilterParams->filter = pl_filter_ewa_lanczos;
     }
+
     sampleFilterParams->filter.clamp = vsapi->propGetFloat(in, "clamp", 0, &err);
     sampleFilterParams->filter.blur = vsapi->propGetFloat(in, "blur", 0, &err);
     sampleFilterParams->filter.taper = vsapi->propGetFloat(in, "taper", 0, &err);
+
     struct pl_filter_function *f = calloc(1, sizeof(struct pl_filter_function));
+
     *f = *sampleFilterParams->filter.kernel;
     if (f->resizable) {
         vsapi->propGetFloat(in, "radius", 0, &err);
         if (!err)
             f->radius = vsapi->propGetFloat(in, "radius", 0, &err);
     }
+
     vsapi->propGetFloat(in, "param1", 0, &err);
     if (!err && f->tunable[0])
         f->params[0] = vsapi->propGetFloat(in, "param1", 0, &err);
+
     vsapi->propGetFloat(in, "param2", 0, &err);
     if (!err && f->tunable[1])
         f->params[1] = vsapi->propGetFloat(in, "param2", 0, &err);
+
     sampleFilterParams->filter.kernel = f;
-
-
     d.sampleParams = sampleFilterParams;
+
     data = malloc(sizeof(d));
     *data = d;
+
     vsapi->createFilter(in, out, "Resample", ResampleInit, ResampleGetFrame, ResampleFree, fmParallel, 0, data, core);
 }
