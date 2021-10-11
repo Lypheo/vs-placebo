@@ -1,3 +1,7 @@
 build/
 libplacebo/
 libplacebo
+cmake-build-release/
+cmake-build-debug/
+vapoursynth
+vapoursynth/
