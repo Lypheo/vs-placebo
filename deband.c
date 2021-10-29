@@ -17,6 +17,7 @@ typedef struct {
     struct pl_dither_params *ditherParams;
     struct pl_deband_params *debandParams;
     int renderer; // for debugging purposes
+    uint8_t frame_index;
     pthread_mutex_t lock;
 } MData;
 
@@ -27,6 +28,11 @@ bool do_plane(struct priv *p, void* data, int chroma)
     if (!d->renderer) {
 
         struct pl_shader *sh = pl_dispatch_begin(p->dp);
+        pl_shader_reset(sh, &(struct pl_shader_params) {
+            .gpu = p->gpu,
+            .index = d->frame_index++,
+        });
+
         int new_depth = p->tex_out[0]->params.format->component_depth[0];
         pl_shader_deband(sh, &(struct pl_sample_src) {.tex = p->tex_in[0]},
                          d->debandParams);
