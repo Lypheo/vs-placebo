@@ -6,6 +6,8 @@
 #include <libplacebo/utils/upload.h>
 #include <libplacebo/vulkan.h>
 
+#include "config_vsplacebo.h"
+
 struct format {
     int num_comps;
     int bitdepth;
