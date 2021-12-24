@@ -1,5 +1,7 @@
 # vs-placebo
+### A VapourSynth plugin interface to [libplacebo](https://code.videolan.org/videolan/libplacebo).
 
+&nbsp;
 
 #### ``placebo.Deband(clip clip[, int planes = 1, int iterations = 1, float threshold = 4.0, float radius = 16.0, float grain = 6.0, int dither = True, int dither_algo = 0])``
 
@@ -14,19 +16,27 @@ For details on the [debanding params](https://github.com/haasn/libplacebo/blob/m
 and the [dither methods](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L275),
 see the libplacebo header files.
 
+&nbsp;
+
 #### ``placebo.Tonemap(clip clip[, int src_csp, float src_peak, float src_avg, float src_scale, int dst_csp, float dst_peak, float dst_avg, float dst_scale, int dynamic_peak_detection, float smoothing_period, float scene_threshold_low, scene_threshold_high, int intent, int tone_mapping_algo, float tone_mapping_param, float desaturation_strength, float desaturation_exponent, float desaturation_base, float max_boost, int gamut_warning])``
+
 Performs color mapping (which includes tonemapping from HDR to SDR, but can do a lot more).  
-Expects RGB48 or YUVxxxP16.  
+Expects RGB48 or YUVxxxP16 input.  
 Outputs RGB48 or YUV444P16, depending on input color family.
 
-- ``src_csp, dst_csp, src_peak, src_avg, src_scale, dst_peak, dst_avg, dst_scale``:
-See the `supported_colorspace` in tonemap.c for the valid src/dst colorspaces.
-For example, to map from [BT.2020, PQ\] (HDR) to traditional [BT.709, BT.1886\] (SDR), pass ``src_csp=1, dst_csp=0``.
+- ``src_csp, dst_csp, src_peak, src_avg, src_scale, dst_peak, dst_avg, dst_scale``:  
+See the `supported_colorspace` in tonemap.c for the valid src/dst colorspaces.  
+For example, to map from [BT.2020, PQ] (HDR) to traditional [BT.709, BT.1886] (SDR), pass ``src_csp=1, dst_csp=0``.
 
 - ``dynamic_peak_detection``: enables computation of signal stats to optimize HDR tonemapping quality. Enabled by default.
 - ``smoothing_period, scene_threshold_low, scene_threshold_high``: peak detection params. See [here](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L85).
 - ``tone_mapping_algo, tone_mapping_param, desaturation_strength, desaturation_exponent, desaturation_base, max_boost, gamut_warning``:
  [Color mapping params](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L199).
+
+For Dolby Vision support, git versions of FFmpeg and ffms2 are required, as well as libplacebo v4.157.0.185 or newer.  
+Currently, [libdovi](https://github.com/quietvoid/dovi_tool/tree/main/dolby_vision) is required.
+
+&nbsp;
 
 #### ``placebo.Resample(clip clip[, int width, int height, string filter = "ewa_lanczos", float radius, float clamp, float taper, float blur, float param1, float param2, float sx = 0.0, float sy = 0.0, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001, bool sigmoidize = 1, bool linearize = 1, float sigmoid_center = 0.75, float sigmoid_slope = 6.5, int trc = 1])``
 
@@ -43,6 +53,8 @@ Defaults to disabled for GRAY since it may be a YCbCr plane, but can be manually
 When sigmodizing, ``linearize`` should be True as well. (Currently mangles HDR video, so disable for that.) 
 - ``sigmoid_center, sigmoid_slope``: Sigmoid curve parameters.
 - ``trc``: The [transfer curve](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/colorspace.h#L183) to use for linearizing.
+
+&nbsp;
 
 #### ``placebo.Shader(clip clip, [string shader, int width, int height, int chroma_loc = 1, int matrix = 2, int trc = 1, string filter = "ewa_lanczos", float radius, float clamp, float taper, float blur, float param1, float param2, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001, bool sigmoidize = 1, bool linearize = 1, float sigmoid_center = 0.75, float sigmoid_slope = 6.5, string shader_s])``
 
@@ -69,6 +81,7 @@ using the supplied filter options, which are identical to ``Resample``’s.
 - ``matrix``: [YUV matrix](https://github.com/haasn/libplacebo/blob/524e3965c6f8f976b3f8d7d82afe3083d61a7c4d/src/include/libplacebo/colorspace.h#L26).
 - ``sigmoidize, linearize, sigmoid_center, sigmoid_slope, trc``: For shaders that hook into the LINEAR or SIGMOID texture.
 
+&nbsp;
 
 ### Installing
 
