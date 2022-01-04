@@ -167,7 +167,7 @@ static void VS_CC SInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node
     VSVideoInfo new_vi = (VSVideoInfo) * (d->vi);
     new_vi.width = d->width;
     new_vi.height = d->height;
-    VSFormat f= *new_vi.format;
+    VSFormat f = *new_vi.format;
     new_vi.format = vsapi->registerFormat(f.colorFamily, f.sampleType, f.bitsPerSample, 0, 0, core);
     vsapi->setVideoInfo(&new_vi, 1, node);
 }
@@ -308,7 +308,7 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
     }
 
     if (d.vi->format->colorFamily != cmYUV || d.vi->format->bitsPerSample != 16) {
-        vsapi->setError(out, "placebo.Shader: Input should be YUVxxxP16!.");
+        vsapi->setError(out, "placebo.Shader: Input should be YUVxxxP16!");
         vsapi->freeNode(d.node);
         return;
     }

@@ -10,36 +10,44 @@
 #include <libplacebo/vulkan.h>
 #include "libp2p/p2p_api.h"
 #include <pthread.h>
+#include <inttypes.h>
 
-typedef  struct {
+#ifdef HAVE_DOVI
+#include "libdovi/rpu_parser.h"
+#include "dovi_meta.h"
+#endif
+
+enum supported_colorspace {
+    CSP_SDR = 0,
+    CSP_HDR10,
+    CSP_HLG,
+    CSP_DOVI,
+};
+
+typedef struct {
     VSNodeRef *node;
     const VSVideoInfo *vi;
     struct priv * vf;
+
     struct pl_render_params *renderParams;
-    struct pl_color_space *src_csp;
-    struct pl_color_space *dst_csp;
+
+    enum supported_colorspace src_csp;
+    struct pl_color_space *src_pl_csp;
+    struct pl_color_space *dst_pl_csp;
+
     pthread_mutex_t lock;
 } TMData;
 
-bool do_plane_TM(struct priv *p, void* data, int n)
+bool do_plane_TM(TMData *tm_data, int n, const struct pl_plane* planes,
+                 const struct pl_color_repr src_repr, const struct pl_color_repr dst_repr)
 {
-    TMData* d = (TMData*) data;
-    struct pl_plane planes[3];
-    for (int j = 0; j < 3; ++j) {
-         planes[j] = (struct pl_plane) {.texture = p->tex_in[j], .components = 1, .component_mapping[0] = j};
-    }
-    static const struct pl_color_repr crpr = {.bits = {.sample_depth = 16, .color_depth = 16, .bit_shift = 0},
-                                              .levels = PL_COLOR_LEVELS_PC, .alpha = PL_ALPHA_UNKNOWN, .sys = PL_COLOR_SYSTEM_RGB};
-
-    int src_w = d->vi->width;
-    int src_h = d->vi->height;
+    struct priv *p = tm_data->vf;
 
     struct pl_frame img = {
         .num_planes = 3,
         .planes     = {planes[0], planes[1], planes[2]},
-        .repr       = crpr,
-        .color      = *d->src_csp,
-        .crop       = {0, 0, src_w, src_h},
+        .repr       = src_repr,
+        .color      = *tm_data->src_pl_csp,
     };
 
     struct pl_frame out = {
@@ -49,14 +57,11 @@ bool do_plane_TM(struct priv *p, void* data, int n)
             .components = p->tex_out[0]->params.format->num_components,
             .component_mapping = {0, 1, 2, 3},
         }},
-        .repr = crpr,
-        .color = *d->dst_csp,
-        .crop = {0, 0, src_w, src_h},
+        .repr = dst_repr,
+        .color = *tm_data->dst_pl_csp,
     };
 
-    pl_rect2df_aspect_copy(&out.crop, &img.crop, 0.0);
-
-    return pl_render_image(p->rr, &img, &out, d->renderParams);
+    return pl_render_image(p->rr, &img, &out, tm_data->renderParams);
 }
 
 bool config_TM(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
@@ -109,35 +114,35 @@ bool config_TM(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
     return true;
 }
 
-bool filter_TM(void *priv, void *dst, struct pl_plane_data *src, void* d, int n, const VSAPI *vsapi)
+bool filter_TM(TMData *tm_data, void *dst, struct pl_plane_data *src, int n, const VSAPI *vsapi,
+               const struct pl_color_repr src_repr, const struct pl_color_repr dst_repr)
 {
-    struct priv *p = priv;
+    struct priv *p = tm_data->vf;
 
     // Upload planes
+    struct pl_plane planes[4] = {0};
+
     bool ok = true;
     for (int i = 0; i < 3; ++i) {
-        ok &= pl_tex_upload(p->gpu, &(struct pl_tex_transfer_params) {
-                .tex = p->tex_in[i],
-                .stride_w = src->row_stride / src->pixel_stride,
-                .ptr = (void *) src[i].pixels,
-        });
+        ok &= pl_upload_plane(p->gpu, &planes[i], &p->tex_in[i], &src[i]);
     }
+
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed uploading data to the GPU!\n");
         return false;
     }
 
     // Process plane
-    if (!do_plane_TM(p, d, n)) {
+    if (!do_plane_TM(tm_data, n, planes, src_repr, dst_repr)) {
         vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
 
     // Download planes
     ok = pl_tex_download(p->gpu, &(struct pl_tex_transfer_params) {
-            .tex = p->tex_out[0],
-            .stride_w = src->row_stride / src->pixel_stride,
-            .ptr = dst,
+        .tex = p->tex_out[0],
+        .stride_w = src->row_stride / src->pixel_stride,
+        .ptr = dst,
     });
 
     if (!ok) {
@@ -151,57 +156,155 @@ bool filter_TM(void *priv, void *dst, struct pl_plane_data *src, void* d, int n,
 static void VS_CC TMInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
     TMData *d = (TMData *) * instanceData;
     VSVideoInfo new_vi = (VSVideoInfo) * (d->vi);
+    const VSFormat f = *new_vi.format;
+
+    new_vi.format = vsapi->registerFormat(f.colorFamily, f.sampleType, f.bitsPerSample, 0, 0, core);
+
     vsapi->setVideoInfo(&new_vi, 1, node);
 }
 
-static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
-    TMData *d = (TMData *) * instanceData;
+static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **instanceData, void **frameData,
+                                          VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi)
+{
+    TMData *tm_data = (TMData *) * instanceData;
 
     if (activationReason == arInitial) {
-        vsapi->requestFrameFilter(n, d->node, frameCtx);
+        vsapi->requestFrameFilter(n, tm_data->node, frameCtx);
     } else if (activationReason == arAllFramesReady) {
-        const VSFrameRef *frame = vsapi->getFrameFilter(n, d->node, frameCtx);
+        const VSFrameRef *frame = vsapi->getFrameFilter(n, tm_data->node, frameCtx);
 
-        int ih = vsapi->getFrameHeight(frame, 0);
-        int iw = vsapi->getFrameWidth(frame, 0);
+        int w = vsapi->getFrameWidth(frame, 0);    
+        int h = vsapi->getFrameHeight(frame, 0);
 
-        VSFrameRef *dst = vsapi->newVideoFrame(d->vi->format, iw, ih, frame, core);
+        const VSFormat *src_fmt = tm_data->vi->format;
+        const VSFormat *dstFmt = vsapi->registerFormat(src_fmt->colorFamily, src_fmt->sampleType, src_fmt->bitsPerSample, 0, 0, core);
 
-        int stride = vsapi->getStride(frame, 0);
-        struct pl_plane_data planes[3];
-        for (int j = 0; j < 3; ++j) {
-            planes[j] = (struct pl_plane_data) {
-                    .type = PL_FMT_UNORM,
-                    .width = iw,
-                    .height = ih,
-                    .pixel_stride = 1 /* components */ * 2 /* bytes per sample*/,
-                    .row_stride =  stride,
-                    .pixels =  vsapi->getWritePtr((VSFrameRef *) frame, j),
+        VSFrameRef *dst = vsapi->newVideoFrame(dstFmt, w, h, frame, core);
+
+        const bool srcIsRGB = src_fmt->colorFamily == cmRGB;
+
+        enum pl_color_system src_sys = srcIsRGB
+                                        ? PL_COLOR_SYSTEM_RGB
+                                        : PL_COLOR_SYSTEM_BT_2020_NC;
+        enum pl_color_system dst_sys = PL_COLOR_SYSTEM_RGB;
+
+        struct pl_color_repr src_repr = {
+            .bits = {
+                .sample_depth = 16,
+                .color_depth = 16,
+                .bit_shift = 0
+            },
+            .sys = src_sys,
+        };
+
+        struct pl_color_repr dst_repr = {
+            .bits = {
+                .sample_depth = 16,
+                .color_depth = 16,
+                .bit_shift = 0
+            },
+            .sys = dst_sys,
+            .levels = PL_COLOR_LEVELS_FULL,
+        };
+
+        if (!srcIsRGB) {
+            dst_repr.levels = PL_COLOR_LEVELS_LIMITED;
+
+            if (tm_data->dst_pl_csp->transfer == PL_COLOR_TRC_BT_1886) {
+                dst_repr.sys = PL_COLOR_SYSTEM_BT_709;
+            } else if (tm_data->dst_pl_csp->transfer == PL_COLOR_TRC_PQ || tm_data->dst_pl_csp->transfer == PL_COLOR_TRC_HLG) {
+                dst_repr.sys = PL_COLOR_SYSTEM_BT_2020_NC;
+            }
+        }
+
+        #if PL_API_VER >= 185
+            struct pl_dovi_metadata *dovi_meta = NULL;
+            uint8_t dovi_profile = 0;
+
+            if (tm_data->src_csp == CSP_DOVI) {
+                #ifdef HAVE_DOVI
+                    int err;
+                    const VSMap *props = vsapi->getFramePropsRO(frame);
+
+                    if (vsapi->propNumElements(props, "DolbyVisionRPU")) {
+                        uint8_t *doviRpu = (uint8_t *) vsapi->propGetData(props, "DolbyVisionRPU", 0, &err);
+                        size_t doviRpuSize = (size_t) vsapi->propGetDataSize(props, "DolbyVisionRPU", 0, &err);
+
+                        if (doviRpu && doviRpuSize) {
+                            // fprintf(stderr, "Got Dolby Vision RPU, size %"PRIi64" at %"PRIxPTR"\n", doviRpuSize, (uintptr_t) doviRpu);
+
+                            DoviRpuOpaque *rpu = dovi_parse_unspec62_nalu(doviRpu, doviRpuSize);
+                            const DoviRpuDataHeader *header = dovi_rpu_get_header(rpu);
+
+                            if (!header) {
+                                fprintf(stderr, "Failed parsing RPU: %s\n", dovi_rpu_get_error(rpu));
+                            } else {
+                                dovi_profile = header->guessed_profile;
+
+                                dovi_meta = create_dovi_meta(rpu, header);
+                                dovi_rpu_free_header(header);
+                            }
+
+                            dovi_rpu_free(rpu);
+
+                            // Only set if we're certain the RPU exists
+                            src_repr.sys = PL_COLOR_SYSTEM_DOLBYVISION;
+                            src_repr.dovi = dovi_meta;
+
+                            if (dovi_profile == 5) {
+                                dst_repr.levels = PL_COLOR_LEVELS_FULL;
+                            }
+                        }
+                    }
+                #endif
+            }
+        #endif
+
+        struct pl_plane_data planes[3] = {};
+        for (int i = 0; i < 3; ++i) {
+            planes[i] = (struct pl_plane_data) {
+                .type = PL_FMT_UNORM,
+                .width = vsapi->getFrameWidth(frame, i),
+                .height = vsapi->getFrameHeight(frame, i),
+                .pixel_stride = dstFmt->bytesPerSample,
+                .row_stride = vsapi->getStride(frame, i),
+                .pixels =  vsapi->getWritePtr((VSFrameRef *) frame, i),
             };
 
-            planes[j].component_size[0] = 16;
-            planes[j].component_pad[0] = 0;
-            planes[j].component_map[0] = j;
+            planes[i].component_size[0] = 16;
+            planes[i].component_pad[0] = 0;
+            planes[i].component_map[0] = i;
         }
 
-        void * packed_dst = malloc(iw*ih*2*3);
-        pthread_mutex_lock(&d->lock); // libplacebo isn’t thread-safe
-        if (config_TM(d->vf, planes, vsapi))
-            filter_TM(d->vf, packed_dst, planes, d, n, vsapi);
-        pthread_mutex_unlock(&d->lock);
+        void *packed_dst = malloc(w * h * 2 * 3);
+        pthread_mutex_lock(&tm_data->lock); // libplacebo isn’t thread-safe
 
-        struct p2p_buffer_param pack_params = {};
-        pack_params.width = iw; pack_params.height = ih;
-        pack_params.packing = p2p_bgr48_le;
-        pack_params.src[0] = packed_dst;
-        pack_params.src_stride[0] = iw*2*3;
-        for (int k = 0; k < 3; ++k) {
-            pack_params.dst[k] = vsapi->getWritePtr(dst, k);
-            pack_params.dst_stride[k] = stride;
+        if (config_TM(tm_data->vf, planes, vsapi)) {
+            filter_TM(tm_data, packed_dst, planes, n, vsapi, src_repr, dst_repr);
         }
+
+        pthread_mutex_unlock(&tm_data->lock);
+
+        struct p2p_buffer_param pack_params = {
+            .width = w,
+            .height = h,
+            .packing = p2p_bgr48_le,
+            .src[0] = packed_dst,
+            .src_stride[0] = w * 2 * 3,
+        };
+
+        for (int i = 0; i < 3; ++i) {
+            pack_params.dst[i] = vsapi->getWritePtr(dst, i);
+            pack_params.dst_stride[i] = vsapi->getStride(dst, i);
+        }
+
         p2p_unpack_frame(&pack_params, 0);
-
         free(packed_dst);
+
+        #if PL_API_VER >= 185
+            if (dovi_meta)
+                free((void *) dovi_meta);
+        #endif
 
         vsapi->freeFrame(frame);
         return dst;
@@ -211,22 +314,25 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
 }
 
 static void VS_CC TMFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
-    TMData *d = (TMData *)instanceData;
-    vsapi->freeNode(d->node);
-    uninit(d->vf);
-    free(d->dst_csp);
-    free(d->src_csp);
-    free((void *) d->renderParams->peak_detect_params);
-    free((void *) d->renderParams->color_map_params);
-    free(d->renderParams);
-    pthread_mutex_destroy(&d->lock);
-    free(d);
+    TMData *tm_data = (TMData *) instanceData;
+    vsapi->freeNode(tm_data->node);
+    uninit(tm_data->vf);
+
+    free((void *) tm_data->src_pl_csp);
+    free((void *) tm_data->dst_pl_csp);
+    free((void *) tm_data->renderParams->peak_detect_params);
+    free((void *) tm_data->renderParams->color_map_params);
+    free(tm_data->renderParams);
+
+    pthread_mutex_destroy(&tm_data->lock);
+    free(tm_data);
 }
 
 void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
     TMData d;
-    TMData *data;
+    TMData *tm_data;
     int err;
+
     if (pthread_mutex_init(&d.lock, NULL) != 0)
     {
         vsapi->setError(out, "placebo.Tonemap: mutex init failed\n");
@@ -236,12 +342,14 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
 
-    if (d.vi->format->colorFamily != cmRGB || d.vi->format->bitsPerSample != 16) {
-        vsapi->setError(out, "placebo.Tonemap: Input should be RGB48!.");
+    d.vf = init();
+
+    if (d.vi->format->bitsPerSample != 16) {
+        vsapi->setError(out, "placebo.Tonemap: Input must be 16 bits per sample!");
         vsapi->freeNode(d.node);
+        return;
     }
 
-    d.vf = init();
     struct pl_color_map_params *colorMapParams = malloc(sizeof(struct pl_color_map_params));
 
 #define COLORM_PARAM(par, type) colorMapParams->par = vsapi->propGet##type(in, #par, 0, &err); \
@@ -265,26 +373,71 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
     PEAK_PARAM(scene_threshold_low, Float)
     PEAK_PARAM(scene_threshold_high, Float)
 
-    struct pl_color_space *src_csp = malloc((sizeof(struct pl_color_space)));
-    *src_csp = (struct pl_color_space) {
-            .primaries = vsapi->propGetInt(in, "srcp", 0, &err),
-            .transfer = vsapi->propGetInt(in, "srct", 0, &err),
-            .light = vsapi->propGetInt(in, "srcl", 0, &err),
-            .sig_avg = vsapi->propGetFloat(in, "src_avg", 0, &err),
-            .sig_peak = vsapi->propGetFloat(in, "src_peak", 0, &err),
-            .sig_scale = vsapi->propGetFloat(in, "src_scale", 0, &err)
+    struct pl_color_space *src_pl_csp = malloc((sizeof(struct pl_color_space)));
+    struct pl_color_space *dst_pl_csp = malloc((sizeof(struct pl_color_space)));
+
+    int src_csp = vsapi->propGetInt(in, "src_csp", 0, &err);
+    int dst_csp = vsapi->propGetInt(in, "dst_csp", 0, &err);
+
+    if (src_csp == CSP_DOVI && d.vi->format->colorFamily == cmRGB) {
+        vsapi->setError(out, "placebo.Tonemap: Dolby Vision source colorspace must be a YUV clip!");
+        vsapi->freeNode(d.node);
+
+        if (colorMapParams)
+            free((void *) colorMapParams);
+        if (peakDetectParams)
+            free((void *) peakDetectParams);
+        if (src_pl_csp)
+            free((void *) src_pl_csp);
+        if (dst_pl_csp)
+            free((void *) dst_pl_csp);
+
+        return;
+    }
+
+    switch (src_csp) {
+        case CSP_HDR10:
+        case CSP_DOVI:
+            *src_pl_csp = pl_color_space_hdr10;
+            break;
+        case CSP_HLG:
+            *src_pl_csp = pl_color_space_bt2020_hlg;
+            break;
+        default:
+            vsapi->setError(out, "Invalid source colorspace for tonemapping.\n");
+            return;
     };
-    struct pl_color_space *dst_csp = malloc((sizeof(struct pl_color_space)));
-    *dst_csp = (struct pl_color_space) {
-            .primaries = vsapi->propGetInt(in, "dstp", 0, &err),
-            .transfer = vsapi->propGetInt(in, "dstt", 0, &err),
-            .light = vsapi->propGetInt(in, "dstl", 0, &err),
-            .sig_avg = vsapi->propGetFloat(in, "dst_avg", 0, &err),
-            .sig_peak = vsapi->propGetFloat(in, "dst_peak", 0, &err),
-            .sig_scale = vsapi->propGetFloat(in, "dst_scale", 0, &err)
+    
+    switch (dst_csp) {
+        case CSP_SDR:
+            *dst_pl_csp = pl_color_space_bt709;
+            break;
+        case CSP_HDR10:
+            *dst_pl_csp = pl_color_space_hdr10;
+            break;
+        case CSP_HLG:
+            *dst_pl_csp = pl_color_space_bt2020_hlg;
+            break;
+        default:
+            vsapi->setError(out, "Invalid target colorspace for tonemapping.\n");
+            return;
     };
+
+    src_pl_csp->sig_avg = vsapi->propGetFloat(in, "src_avg", 0, &err);
+    src_pl_csp->sig_peak = vsapi->propGetFloat(in, "src_peak", 0, &err);
+    src_pl_csp->sig_scale = vsapi->propGetFloat(in, "src_scale", 0, &err);
+
+    pl_color_space_infer(src_pl_csp);
+
+    dst_pl_csp->sig_avg = vsapi->propGetFloat(in, "dst_avg", 0, &err);
+    dst_pl_csp->sig_peak = vsapi->propGetFloat(in, "dst_peak", 0, &err);
+    dst_pl_csp->sig_scale = vsapi->propGetFloat(in, "dst_scale", 0, &err);
+
+    pl_color_space_infer(dst_pl_csp);
+
     int peak_detection = vsapi->propGetInt(in, "dynamic_peak_detection", 0, &err);
-    if (err) peak_detection = 1;
+    if (err)
+        peak_detection = 1;
 
     struct pl_render_params *renderParams = malloc(sizeof(struct pl_render_params));
     *renderParams = pl_render_default_params;
@@ -294,12 +447,14 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
     renderParams->sigmoid_params = NULL;
     renderParams->cone_params = NULL;
     renderParams->dither_params = NULL;
+
     d.renderParams = renderParams;
+    d.src_pl_csp = src_pl_csp;
+    d.dst_pl_csp = dst_pl_csp;
     d.src_csp = src_csp;
-    d.dst_csp = dst_csp;
 
-    data = malloc(sizeof(d));
-    *data = d;
+    tm_data = malloc(sizeof(d));
+    *tm_data = d;
 
-    vsapi->createFilter(in, out, "Tonemap", TMInit, TMGetFrame, TMFree, fmParallel, 0, data, core);
+    vsapi->createFilter(in, out, "Tonemap", TMInit, TMGetFrame, TMFree, fmParallel, 0, tm_data, core);
 }
