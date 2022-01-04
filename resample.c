@@ -61,7 +61,7 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
 
     pl_shader_sample_direct(ish, &src);
     if (d->linear)
-        pl_shader_linearize(ish, color);
+        pl_shader_linearize(ish, &color);
 
     if (d->sigmoid_params)
         pl_shader_sigmoidize(ish, d->sigmoid_params);
@@ -122,7 +122,7 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
         pl_shader_unsigmoidize(sh, d->sigmoid_params);
 
     if (d->linear)
-        pl_shader_delinearize(sh, color);
+        pl_shader_delinearize(sh, &color);
 
 
     bool ok = pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = p->tex_out[0], .shader = &sh});
