@@ -1,12 +1,12 @@
-#include "vs-placebo.h"
-#include <stdlib.h>
+#include <pthread.h>
+#include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
+
 #include "VapourSynth.h"
 #include "VSHelper.h"
-#include <stdbool.h>
-#include <libplacebo/dispatch.h>
-#include <libplacebo/utils/upload.h>
-#include <pthread.h>
+
+#include "vs-placebo.h"
 
 typedef struct {
     VSNodeRef *node;

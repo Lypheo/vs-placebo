@@ -1,16 +1,15 @@
-#include "vs-placebo.h"
-
+#include <inttypes.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "VapourSynth.h"
 #include <stdbool.h>
-#include <libplacebo/dispatch.h>
-#include <libplacebo/utils/upload.h>
-#include <libplacebo/vulkan.h>
+
+#include "VapourSynth.h"
+
 #include "libp2p/p2p_api.h"
-#include <pthread.h>
-#include <inttypes.h>
+
+#include "vs-placebo.h"
 
 #ifdef HAVE_DOVI
 #include "libdovi/rpu_parser.h"
