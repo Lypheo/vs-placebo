@@ -89,4 +89,19 @@ If you’re on Arch, just do
 ```
 $ yay -S vapoursynth-plugin-placebo-git
 ```
-Else try your luck with cmake or meson. Windows builds are available under releases.
+
+&nbsp;
+
+Building on Linux using meson:
+```
+meson build
+ninja -C build
+```
+It is not recommended to install the library on the system without using a package manager.  
+Otherwise it's as simple as `DESTDIR= ninja -C build install`.
+
+&nbsp;
+
+Building on Linux for Windows:  
+Some experimental build system based on `mpv-winbuild-cmake`: https://github.com/quietvoid/mpv-winbuild-cmake/commits/vs-placebo-winbuild  
+YMMV.
