@@ -1,17 +1,17 @@
-#include "shader.h"
-#include "vs-placebo.h"
-
+#include <pthread.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "VapourSynth.h"
 #include <stdbool.h>
-#include <libplacebo/dispatch.h>
-#include <libplacebo/utils/upload.h>
+
+#include "VapourSynth.h"
+
+#include "libp2p/p2p_api.h"
 #include <libplacebo/shaders/custom.h>
 #include <libplacebo/colorspace.h>
-#include <pthread.h>
-#include "libp2p/p2p_api.h"
+
+#include "vs-placebo.h"
+#include "shader.h"
 
 typedef  struct {
     VSNodeRef *node;

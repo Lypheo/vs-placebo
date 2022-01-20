@@ -1,18 +1,14 @@
-#include "VapourSynth.h"
-#include "deband.h"
-#include "tonemap.h"
-#include "resample.h"
-#include "shader.h"
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
 
-#include <libplacebo/dispatch.h>
-#include <libplacebo/utils/upload.h>
-#include <libplacebo/vulkan.h>
+#include "VapourSynth.h"
 
 #include "vs-placebo.h"
+#include "deband.h"
+#include "tonemap.h"
+#include "resample.h"
+#include "shader.h"
 
 void *init(void) {
     struct priv *p = calloc(1, sizeof(struct priv));
