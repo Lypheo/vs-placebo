@@ -18,20 +18,21 @@ see the libplacebo header files.
 
 &nbsp;
 
-#### ``placebo.Tonemap(clip clip[, int src_csp, float src_peak, float src_avg, float src_scale, int dst_csp, float dst_peak, float dst_avg, float dst_scale, int dynamic_peak_detection, float smoothing_period, float scene_threshold_low, scene_threshold_high, int intent, int tone_mapping_algo, float tone_mapping_param, float desaturation_strength, float desaturation_exponent, float desaturation_base, float max_boost, int gamut_warning])``
+#### ``placebo.Tonemap(clip clip[, int src_csp, int dst_csp, float src_max, float src_min, float dst_max, float dst_min, int dynamic_peak_detection, float smoothing_period, float scene_threshold_low, scene_threshold_high, int intent, int gamut_mode, int tone_mapping_function, int tone_mapping_mode, float tone_mapping_param, float tone_mapping_crosstalk])``
 
 Performs color mapping (which includes tonemapping from HDR to SDR, but can do a lot more).  
 Expects RGB48 or YUVxxxP16 input.  
 Outputs RGB48 or YUV444P16, depending on input color family.
 
-- ``src_csp, dst_csp, src_peak, src_avg, src_scale, dst_peak, dst_avg, dst_scale``:  
-See the `supported_colorspace` in tonemap.c for the valid src/dst colorspaces.  
+- ``src_csp, dst_csp``:  
+See the `supported_colorspace` in `tonemap.c` for the valid src/dst colorspaces.  
 For example, to map from [BT.2020, PQ] (HDR) to traditional [BT.709, BT.1886] (SDR), pass ``src_csp=1, dst_csp=0``.
+- ``src_max, src_min, dst_max, dst_min``: Source/target display levels, in nits (cd/m^2). Source can be derived from props if available.
 
 - ``dynamic_peak_detection``: enables computation of signal stats to optimize HDR tonemapping quality. Enabled by default.
 - ``smoothing_period, scene_threshold_low, scene_threshold_high``: peak detection params. See [here](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L85).
-- ``tone_mapping_algo, tone_mapping_param, desaturation_strength, desaturation_exponent, desaturation_base, max_boost, gamut_warning``:
- [Color mapping params](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L199).
+- ``gamut_mode, tone_mapping_function, tone_mapping_mode, tone_mapping_param, tone_mapping_crosstalk``:
+ [Color mapping params](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L237).
 
 For Dolby Vision support, git versions of FFmpeg and ffms2 are required, as well as libplacebo v4.157.0.185 or newer.  
 Currently, [libdovi](https://github.com/quietvoid/dovi_tool/tree/main/dolby_vision) is required.
