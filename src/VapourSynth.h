@@ -24,7 +24,7 @@
 #include <stdint.h>
 
 #define VAPOURSYNTH_API_MAJOR 3
-#define VAPOURSYNTH_API_MINOR 5
+#define VAPOURSYNTH_API_MINOR 6
 #define VAPOURSYNTH_API_VERSION ((VAPOURSYNTH_API_MAJOR << 16) | (VAPOURSYNTH_API_MINOR))
 
 /* Convenience for C++ users. */
@@ -35,9 +35,15 @@
 #    else
 #        define VS_NOEXCEPT
 #    endif
+#    if __cplusplus >= 201402L || (defined(_MSC_VER) && _MSC_VER >= 1900)
+#        define VS_DEPRECATE(REASON) [[deprecated(REASON)]]
+#    else
+#        define VS_DEPRECATE(REASON)
+#    endif
 #else
 #    define VS_EXTERN_C
 #    define VS_NOEXCEPT
+#    define VS_DEPRECATE(REASON)
 #endif
 
 #if defined(_WIN32) && !defined(_WIN64)
@@ -86,7 +92,7 @@ typedef enum VSSampleType {
     stFloat = 1
 } VSSampleType;
 
-/* The +10 is so people won't be using the constants interchangably "by accident" */
+/* The +10 is so people won't be using the constants interchangeably "by accident" */
 typedef enum VSPresetFormat {
     pfNone = 0,
 
@@ -238,10 +244,13 @@ typedef void (VS_CC *VSFilterFree)(void *instanceData, VSCore *core, const VSAPI
 /* other */
 typedef void (VS_CC *VSFrameDoneCallback)(void *userData, const VSFrameRef *f, int n, VSNodeRef *, const char *errorMsg);
 typedef void (VS_CC *VSMessageHandler)(int msgType, const char *msg, void *userData);
+typedef void (VS_CC *VSMessageHandlerFree)(void *userData);
 
 struct VSAPI {
     VSCore *(VS_CC *createCore)(int threads) VS_NOEXCEPT;
     void (VS_CC *freeCore)(VSCore *core) VS_NOEXCEPT;
+
+    VS_DEPRECATE("getCoreInfo has been deprecated as of api 3.6, use getCoreInfo2 instead")
     const VSCoreInfo *(VS_CC *getCoreInfo)(VSCore *core) VS_NOEXCEPT;
 
     const VSFrameRef *(VS_CC *cloneFrameRef)(const VSFrameRef *f) VS_NOEXCEPT;
@@ -321,7 +330,10 @@ struct VSAPI {
     int64_t (VS_CC *setMaxCacheSize)(int64_t bytes, VSCore *core) VS_NOEXCEPT;
     int (VS_CC *getOutputIndex)(VSFrameContext *frameCtx) VS_NOEXCEPT;
     VSFrameRef *(VS_CC *newVideoFrame2)(const VSFormat *format, int width, int height, const VSFrameRef **planeSrc, const int *planes, const VSFrameRef *propSrc, VSCore *core) VS_NOEXCEPT;
+    
+    VS_DEPRECATE("setMessageHandler has been deprecated as of api 3.6, use addMessageHandler and removeMessageHandler instead")
     void (VS_CC *setMessageHandler)(VSMessageHandler handler, void *userData) VS_NOEXCEPT;
+    
     int (VS_CC *setThreadCount)(int threads, VSCore *core) VS_NOEXCEPT;
 
     const char *(VS_CC *getPluginPath)(const VSPlugin *plugin) VS_NOEXCEPT;
@@ -335,6 +347,11 @@ struct VSAPI {
 
     /* api 3.4 */
     void (VS_CC *logMessage)(int msgType, const char *msg) VS_NOEXCEPT;
+
+    /* api 3.6 */
+    int (VS_CC *addMessageHandler)(VSMessageHandler handler, VSMessageHandlerFree free, void *userData) VS_NOEXCEPT;
+    int (VS_CC *removeMessageHandler)(int id) VS_NOEXCEPT;
+    void (VS_CC *getCoreInfo2)(VSCore *core, VSCoreInfo *info) VS_NOEXCEPT;
 };
 
 VS_API(const VSAPI *) getVapourSynthAPI(int version) VS_NOEXCEPT;
