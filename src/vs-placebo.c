@@ -83,16 +83,14 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegiste
                              "sigmoidize:int:opt;sigmoid_center:float:opt;sigmoid_slope:float:opt;linearize:int:opt;trc:int:opt", ResampleCreate, 0, plugin);
     registerFunc("Tonemap", "clip:clip;"
                             "src_csp:int:opt;dst_csp:int:opt;"
-                            "src_peak:float:opt;src_avg:float:opt;src_scale:float:opt;"
-                            "dst_peak:float:opt;dst_avg:float:opt;dst_scale:float:opt;"
+                            "src_max:float:opt;src_min:float:opt;"
+                            "dst_max:float:opt;dst_min:float:opt;"
                             "dynamic_peak_detection:int:opt;smoothing_period:float:opt;"
                             "scene_threshold_low:float:opt;scene_threshold_high:float:opt;"
                             "intent:int:opt;"
-                            "tone_mapping_algo:int:opt;tone_mapping_param:float:opt;"
-                            "desaturation_strength:float:opt;desaturation_exponent:float:opt;"
-                            "desaturation_base:float:opt;"
-                            "max_boost:float:opt;gamut_warning:int:opt;gamut_clipping:int:opt"
-                            , TMCreate, 0, plugin);
+                            "gamut_mode:int:opt;"
+                            "tone_mapping_function:int:opt;tone_mapping_mode:int:opt;"
+                            "tone_mapping_param:float:opt;tone_mapping_crosstalk:float:opt;", TMCreate, 0, plugin);
     registerFunc("Shader", "clip:clip;shader:data:opt;width:int:opt;height:int:opt;chroma_loc:int:opt;matrix:int:opt;trc:int:opt;"
                            "linearize:int:opt;sigmoidize:int:opt;sigmoid_center:float:opt;sigmoid_slope:float:opt;"
                            "lut_entries:int:opt;antiring:float:opt;"

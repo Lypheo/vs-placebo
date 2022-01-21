@@ -35,9 +35,15 @@ typedef struct {
     struct pl_color_space *dst_pl_csp;
 
     pthread_mutex_t lock;
+
+    int64_t original_src_max;
+    int64_t original_src_min;
+    
+    bool is_subsampled;
+    enum pl_chroma_location chromaLocation;
 } TMData;
 
-bool do_plane_TM(TMData *tm_data, int n, const struct pl_plane* planes,
+bool do_plane_TM(TMData *tm_data, int n, struct pl_plane* planes,
                  const struct pl_color_repr src_repr, const struct pl_color_repr dst_repr)
 {
     struct priv *p = tm_data->vf;
@@ -48,6 +54,10 @@ bool do_plane_TM(TMData *tm_data, int n, const struct pl_plane* planes,
         .repr       = src_repr,
         .color      = *tm_data->src_pl_csp,
     };
+
+    if (tm_data->is_subsampled) {
+        pl_frame_set_chroma_location(&img, tm_data->chromaLocation);
+    }
 
     struct pl_frame out = {
         .num_planes = 1,
@@ -76,11 +86,11 @@ bool config_TM(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
     bool ok = true;
     for (int i = 0; i < 3; ++i) {
         ok &= pl_tex_recreate(p->gpu, &p->tex_in[i], &(struct pl_tex_params) {
-                .w = data->width,
-                .h = data->height,
-                .format = fmt,
-                .sampleable = true,
-                .host_writable = true,
+            .w = data->width,
+            .h = data->height,
+            .format = fmt,
+            .sampleable = true,
+            .host_writable = true,
         });
     }
 
@@ -98,11 +108,13 @@ bool config_TM(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
     const struct pl_fmt *out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
 
     ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], &(struct pl_tex_params) {
-            .w = data->width,
-            .h = data->height,
-            .format = out,
-            .renderable = true,
-            .host_readable = true,
+        .w = data->width,
+        .h = data->height,
+        .format = out,
+        .renderable = true,
+        .host_readable = true,
+        .storable = true,
+        .blit_dst = true,
     });
 
     if (!ok) {
@@ -204,10 +216,26 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
             },
             .sys = dst_sys,
             .levels = PL_COLOR_LEVELS_FULL,
+            .alpha = PL_ALPHA_PREMULTIPLIED,
         };
+
+        int err;
+        const VSMap *props = vsapi->getFramePropsRO(frame);
+
+        int64_t props_levels = vsapi->propGetInt(props, "_ColorRange", 0, &err);
+
+        if (!err) {
+            // Existing range prop
+            src_repr.levels = props_levels ? PL_COLOR_LEVELS_LIMITED : PL_COLOR_LEVELS_FULL;
+        }
 
         if (!srcIsRGB) {
             dst_repr.levels = PL_COLOR_LEVELS_LIMITED;
+
+            if (!err && !props_levels) {
+                // Existing range & not limited
+                dst_repr.levels = PL_COLOR_LEVELS_FULL;
+            }
 
             if (tm_data->dst_pl_csp->transfer == PL_COLOR_TRC_BT_1886) {
                 dst_repr.sys = PL_COLOR_SYSTEM_BT_709;
@@ -216,15 +244,68 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
             }
         }
 
+        struct pl_color_space *src_pl_csp = tm_data->src_pl_csp;
+
+        // ST2086 metadata
+        // Update metadata from props
+        const double maxCll = vsapi->propGetFloat(props, "ContentLightLevelMax", 0, &err);
+        const double maxFall = vsapi->propGetFloat(props, "ContentLightLevelAverage", 0, &err);
+
+        src_pl_csp->hdr.max_cll = maxCll;
+        src_pl_csp->hdr.max_fall = maxFall;
+
+        if (tm_data->original_src_max < 1) {
+            src_pl_csp->hdr.max_luma = vsapi->propGetFloat(props, "MasteringDisplayMaxLuminance", 0, &err);
+        }
+
+        if (tm_data->original_src_min <= 0) {
+            src_pl_csp->hdr.min_luma = vsapi->propGetFloat(props, "MasteringDisplayMinLuminance", 0, &err);
+        }
+
+        pl_color_space_infer(src_pl_csp);
+
+        const double *primariesX = vsapi->propGetFloatArray(props, "MasteringDisplayPrimariesX", &err);
+        const double *primariesY = vsapi->propGetFloatArray(props, "MasteringDisplayPrimariesY", &err);
+
+        const int numPrimariesX = vsapi->propNumElements(props, "MasteringDisplayPrimariesX");
+        const int numPrimariesY = vsapi->propNumElements(props, "MasteringDisplayPrimariesX");
+
+        if (primariesX && primariesY && numPrimariesX == 3 && numPrimariesY == 3) {
+            src_pl_csp->hdr.prim.red.x = primariesX[0];
+            src_pl_csp->hdr.prim.red.y = primariesY[0];
+            src_pl_csp->hdr.prim.green.x = primariesX[1];
+            src_pl_csp->hdr.prim.green.y = primariesY[1];
+            src_pl_csp->hdr.prim.blue.x = primariesX[2];
+            src_pl_csp->hdr.prim.blue.y = primariesY[2];
+
+            // White point comes with primaries
+            const double whitePointX = vsapi->propGetFloat(props, "MasteringDisplayWhitePointX", 0, &err);
+            const double whitePointY = vsapi->propGetFloat(props, "MasteringDisplayWhitePointY", 0, &err);
+
+            if (whitePointX && whitePointY) {
+                src_pl_csp->hdr.prim.white.x = whitePointX;
+                src_pl_csp->hdr.prim.white.y = whitePointY;
+            }
+        } else {
+            // Assume DCI-P3 D65 default?
+            pl_raw_primaries_merge(&src_pl_csp->hdr.prim, pl_raw_primaries_get(PL_COLOR_PRIM_DISPLAY_P3));
+        }
+
+        tm_data->chromaLocation = vsapi->propGetInt(props, "_ChromaLocation", 0, &err);
+
+        // FFMS2 prop is -1 to match zimg
+        // However, libplacebo matches AVChromaLocation
+        if (!err) {
+            tm_data->chromaLocation += 1;
+        }
+
+        // DOVI
         #if PL_API_VER >= 185
             struct pl_dovi_metadata *dovi_meta = NULL;
             uint8_t dovi_profile = 0;
 
             if (tm_data->src_csp == CSP_DOVI) {
                 #ifdef HAVE_DOVI
-                    int err;
-                    const VSMap *props = vsapi->getFramePropsRO(frame);
-
                     if (vsapi->propNumElements(props, "DolbyVisionRPU")) {
                         uint8_t *doviRpu = (uint8_t *) vsapi->propGetData(props, "DolbyVisionRPU", 0, &err);
                         size_t doviRpuSize = (size_t) vsapi->propGetDataSize(props, "DolbyVisionRPU", 0, &err);
@@ -244,8 +325,6 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
                                 dovi_rpu_free_header(header);
                             }
 
-                            dovi_rpu_free(rpu);
-
                             // Only set if we're certain the RPU exists
                             src_repr.sys = PL_COLOR_SYSTEM_DOLBYVISION;
                             src_repr.dovi = dovi_meta;
@@ -253,6 +332,29 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
                             if (dovi_profile == 5) {
                                 dst_repr.levels = PL_COLOR_LEVELS_FULL;
                             }
+
+                            // Update mastering display from RPU
+                            if (header->vdr_dm_metadata_present_flag) {
+                                const DoviVdrDmData *vdr_dm_data = dovi_rpu_get_vdr_dm_data(rpu);
+
+                                src_pl_csp->hdr.min_luma =
+                                    pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, vdr_dm_data->source_min_pq / 4095.0f);
+                                src_pl_csp->hdr.max_luma =
+                                    pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, vdr_dm_data->source_max_pq / 4095.0f);
+
+                                if (vdr_dm_data->dm_data.level6) {
+                                    const DoviExtMetadataBlockLevel6 *meta = vdr_dm_data->dm_data.level6;
+                                    
+                                    if (!maxCll || !maxFall) {
+                                        src_pl_csp->hdr.max_cll = meta->max_content_light_level;
+                                        src_pl_csp->hdr.max_fall = meta->max_frame_average_light_level;
+                                    }
+                                }
+                                
+                                dovi_rpu_free_vdr_dm_data(vdr_dm_data);
+                            }
+                            
+                            dovi_rpu_free(rpu);
                         }
                     }
                 #endif
@@ -350,21 +452,36 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
     }
 
     struct pl_color_map_params *colorMapParams = malloc(sizeof(struct pl_color_map_params));
+    *colorMapParams = pl_color_map_default_params;
+
+    // Tone mapping function
+    int64_t function_index = vsapi->propGetInt(in, "tone_mapping_function", 0, &err);
+
+    if (function_index >= pl_num_tone_map_functions) {
+        function_index = 0;
+    }
+
+    colorMapParams->tone_mapping_function = pl_tone_map_functions[function_index];
+
+    const double tone_mapping_param = vsapi->propGetFloat(in, "tone_mapping_param", 0, &err);
+    colorMapParams->tone_mapping_param = tone_mapping_param;
+
+    if (err) {
+        // Set default param from selected function
+        colorMapParams->tone_mapping_param = colorMapParams->tone_mapping_function->param_def;
+    }
 
 #define COLORM_PARAM(par, type) colorMapParams->par = vsapi->propGet##type(in, #par, 0, &err); \
         if (err) colorMapParams->par = pl_color_map_default_params.par;
 
-    COLORM_PARAM(tone_mapping_algo, Int)
-    COLORM_PARAM(tone_mapping_param, Float)
-    COLORM_PARAM(desaturation_base, Float)
-    COLORM_PARAM(desaturation_strength, Float)
-    COLORM_PARAM(desaturation_exponent, Float)
-    COLORM_PARAM(max_boost, Float)
-    COLORM_PARAM(gamut_warning, Int)
     COLORM_PARAM(intent, Int)
-    COLORM_PARAM(gamut_clipping, Int)
+    COLORM_PARAM(gamut_mode, Int)
+    COLORM_PARAM(tone_mapping_mode, Int)
+    COLORM_PARAM(tone_mapping_crosstalk, Float)
 
     struct pl_peak_detect_params *peakDetectParams = malloc(sizeof(struct pl_peak_detect_params));
+    *peakDetectParams = pl_peak_detect_default_params;
+
 #define PEAK_PARAM(par, type) peakDetectParams->par = vsapi->propGet##type(in, #par, 0, &err); \
         if (err) peakDetectParams->par = pl_peak_detect_default_params.par;
 
@@ -422,15 +539,16 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
             return;
     };
 
-    src_pl_csp->sig_avg = vsapi->propGetFloat(in, "src_avg", 0, &err);
-    src_pl_csp->sig_peak = vsapi->propGetFloat(in, "src_peak", 0, &err);
-    src_pl_csp->sig_scale = vsapi->propGetFloat(in, "src_scale", 0, &err);
+    int64_t src_max = vsapi->propGetFloat(in, "src_max", 0, &err);
+    int64_t src_min = vsapi->propGetFloat(in, "src_min", 0, &err);
+
+    src_pl_csp->hdr.max_luma = src_max;
+    src_pl_csp->hdr.min_luma = src_min;
 
     pl_color_space_infer(src_pl_csp);
 
-    dst_pl_csp->sig_avg = vsapi->propGetFloat(in, "dst_avg", 0, &err);
-    dst_pl_csp->sig_peak = vsapi->propGetFloat(in, "dst_peak", 0, &err);
-    dst_pl_csp->sig_scale = vsapi->propGetFloat(in, "dst_scale", 0, &err);
+    dst_pl_csp->hdr.max_luma = vsapi->propGetFloat(in, "dst_max", 0, &err);
+    dst_pl_csp->hdr.min_luma = vsapi->propGetFloat(in, "dst_min", 0, &err);
 
     pl_color_space_infer(dst_pl_csp);
 
@@ -440,17 +558,22 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
 
     struct pl_render_params *renderParams = malloc(sizeof(struct pl_render_params));
     *renderParams = pl_render_default_params;
+
     renderParams->color_map_params = colorMapParams;
     renderParams->peak_detect_params = peak_detection ? peakDetectParams : NULL;
-    renderParams->deband_params = NULL;
-    renderParams->sigmoid_params = NULL;
+    renderParams->sigmoid_params = &pl_sigmoid_default_params;
+    renderParams->dither_params = &pl_dither_default_params;
     renderParams->cone_params = NULL;
-    renderParams->dither_params = NULL;
+    renderParams->color_adjustment = NULL;
+    renderParams->deband_params = NULL;
 
     d.renderParams = renderParams;
     d.src_pl_csp = src_pl_csp;
     d.dst_pl_csp = dst_pl_csp;
     d.src_csp = src_csp;
+    d.original_src_max = src_max;
+    d.original_src_min = src_min;
+    d.is_subsampled = d.vi->format->subSamplingW || d.vi->format->subSamplingH;
 
     tm_data = malloc(sizeof(d));
     *tm_data = d;
