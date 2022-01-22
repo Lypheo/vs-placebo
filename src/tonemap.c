@@ -268,7 +268,7 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
         const double *primariesY = vsapi->propGetFloatArray(props, "MasteringDisplayPrimariesY", &err);
 
         const int numPrimariesX = vsapi->propNumElements(props, "MasteringDisplayPrimariesX");
-        const int numPrimariesY = vsapi->propNumElements(props, "MasteringDisplayPrimariesX");
+        const int numPrimariesY = vsapi->propNumElements(props, "MasteringDisplayPrimariesY");
 
         if (primariesX && primariesY && numPrimariesX == 3 && numPrimariesY == 3) {
             src_pl_csp->hdr.prim.red.x = primariesX[0];
