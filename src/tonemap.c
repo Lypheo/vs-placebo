@@ -85,13 +85,13 @@ bool config_TM(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
 
     bool ok = true;
     for (int i = 0; i < 3; ++i) {
-        ok &= pl_tex_recreate(p->gpu, &p->tex_in[i], &(struct pl_tex_params) {
+        ok &= pl_tex_recreate(p->gpu, &p->tex_in[i], pl_tex_params(
             .w = data->width,
             .h = data->height,
             .format = fmt,
             .sampleable = true,
             .host_writable = true,
-        });
+        ));
     }
 
     const struct pl_plane_data plane_data = {
@@ -107,7 +107,7 @@ bool config_TM(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
 
     const struct pl_fmt *out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
 
-    ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], &(struct pl_tex_params) {
+    ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], pl_tex_params(
         .w = data->width,
         .h = data->height,
         .format = out,
@@ -115,7 +115,7 @@ bool config_TM(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
         .host_readable = true,
         .storable = true,
         .blit_dst = true,
-    });
+    ));
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed creating GPU textures!\n");
@@ -149,12 +149,14 @@ bool filter_TM(TMData *tm_data, void *dst, struct pl_plane_data *src, int n, con
         return false;
     }
 
+    pl_fmt out_fmt = p->tex_out[0]->params.format;
+
     // Download planes
-    ok = pl_tex_download(p->gpu, &(struct pl_tex_transfer_params) {
+    ok = pl_tex_download(p->gpu, pl_tex_transfer_params(
         .tex = p->tex_out[0],
-        .stride_w = src->row_stride / src->pixel_stride,
+        .row_pitch = (src->row_stride / src->pixel_stride) * out_fmt->texel_size,
         .ptr = dst,
-    });
+    ));
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed downloading data from the GPU!\n");
@@ -369,7 +371,7 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
                 .height = vsapi->getFrameHeight(frame, i),
                 .pixel_stride = dstFmt->bytesPerSample,
                 .row_stride = vsapi->getStride(frame, i),
-                .pixels =  vsapi->getWritePtr((VSFrameRef *) frame, i),
+                .pixels = vsapi->getReadPtr((VSFrameRef *) frame, i),
             };
 
             planes[i].component_size[0] = 16;

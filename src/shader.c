@@ -34,16 +34,19 @@ typedef  struct {
 bool do_plane_S(struct priv *p, void* data, int n, struct pl_plane* planes)
 {
     SData* d = (SData*) data;
-    for (int i = 1; i < 3; ++i) {
-        if (d->vi->format->subSamplingW == 1)
-            pl_chroma_location_offset(d->chromaLocation, &planes[i].shift_x, &planes[i].shift_y);
-        if (d->vi->format->subSamplingH == 1)
-            pl_chroma_location_offset(d->chromaLocation, &planes[i].shift_x, &planes[i].shift_y); // trust that users won’t specify chroma locs with vertical shifts for 422
-    }
 
-    const struct pl_color_repr crpr = {.bits = {.sample_depth = 16, .color_depth = 16, .bit_shift = 0},
-                                              .sys = d->matrix, .levels = d->range};
-    const struct pl_color_space csp = {.transfer = d->trc};
+    const struct pl_color_repr crpr = {
+        .bits = {
+            .sample_depth = 16,
+            .color_depth = 16,
+            .bit_shift = 0
+        },
+        .sys = d->matrix,
+        .levels = d->range
+    };
+    const struct pl_color_space csp = {
+        .transfer = d->trc
+    };
 
     struct pl_frame img = {
         .num_planes = 3,
@@ -51,6 +54,10 @@ bool do_plane_S(struct priv *p, void* data, int n, struct pl_plane* planes)
         .planes = {planes[0], planes[1], planes[2]},
         .color = csp,
     };
+
+    if (d->vi->format->subSamplingW || d->vi->format->subSamplingH) {
+        pl_frame_set_chroma_location(&img, d->chromaLocation);
+    }
 
     struct pl_frame out = {
         .num_planes = 1,
@@ -64,15 +71,17 @@ bool do_plane_S(struct priv *p, void* data, int n, struct pl_plane* planes)
     };
 
     struct pl_render_params renderParams = {
-            .hooks = &d->shader, .num_hooks = 1,
-            .sigmoid_params = d->sigmoid_params,
-            .disable_linear_scaling = !d->linear,
-            .upscaler = &d->sampleParams->filter,
-            .downscaler = &d->sampleParams->filter,
-            .antiringing_strength = d->sampleParams->antiring,
-            .lut_entries = d->sampleParams->lut_entries,
-            .polar_cutoff = d->sampleParams->cutoff
+        .hooks = &d->shader,
+        .num_hooks = 1,
+        .sigmoid_params = d->sigmoid_params,
+        .disable_linear_scaling = !d->linear,
+        .upscaler = &d->sampleParams->filter,
+        .downscaler = &d->sampleParams->filter,
+        .antiringing_strength = d->sampleParams->antiring,
+        .lut_entries = d->sampleParams->lut_entries,
+        .polar_cutoff = d->sampleParams->cutoff
     };
+
     return pl_render_image(p->rr, &img, &out, &renderParams);
 }
 
@@ -91,13 +100,13 @@ bool config_S(void *priv, struct pl_plane_data *data, const VSAPI *vsapi, SData*
 
     bool ok = true;
     for (int i = 0; i < 3; ++i) {
-        ok &= pl_tex_recreate(p->gpu, &p->tex_in[i], &(struct pl_tex_params) {
-                .w = data[i].width,
-                .h = data[i].height,
-                .format = fmt[i],
-                .sampleable = true,
-                .host_writable = true,
-        });
+        ok &= pl_tex_recreate(p->gpu, &p->tex_in[i], pl_tex_params(
+            .w = data[i].width,
+            .h = data[i].height,
+            .format = fmt[i],
+            .sampleable = true,
+            .host_writable = true,
+        ));
     }
 
     const struct pl_plane_data plane_data = {
@@ -110,13 +119,13 @@ bool config_S(void *priv, struct pl_plane_data *data, const VSAPI *vsapi, SData*
 
     const struct pl_fmt *out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
 
-    ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], &(struct pl_tex_params) {
-            .w = d->width,
-            .h = d->height,
-            .format = out,
-            .renderable = true,
-            .host_readable = true,
-    });
+    ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], pl_tex_params(
+        .w = d->width,
+        .h = d->height,
+        .format = out,
+        .renderable = true,
+        .host_readable = true,
+    ));
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed creating GPU textures!\n");
@@ -149,10 +158,10 @@ bool filter_S(void *priv, void *dst, struct pl_plane_data *src,  SData* d, int n
     }
 
     // Download planes
-    ok = pl_tex_download(p->gpu, &(struct pl_tex_transfer_params) {
-            .tex = p->tex_out[0],
-            .ptr = dst,
-    });
+    ok = pl_tex_download(p->gpu, pl_tex_transfer_params(
+        .tex = p->tex_out[0],
+        .ptr = dst,
+    ));
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed downloading data from the GPU!\n");
@@ -196,15 +205,15 @@ static const VSFrameRef *VS_CC SGetFrame(int n, int activationReason, void **ins
 
         VSFrameRef *dst = vsapi->newVideoFrame(dstfmt, d->width, d->height, frame, core);
 
-        struct pl_plane_data planes[4];
+        struct pl_plane_data planes[4] = {0};
         for (int j = 0; j < 3; ++j) {
             planes[j] = (struct pl_plane_data) {
-                    .type = PL_FMT_UNORM,
-                    .width = vsapi->getFrameWidth(frame, j),
-                    .height = vsapi->getFrameHeight(frame, j),
-                    .pixel_stride = 1 * 2,
-                    .row_stride =  vsapi->getStride(frame, j),
-                    .pixels =  vsapi->getWritePtr((VSFrameRef *) frame, j),
+                .type = PL_FMT_UNORM,
+                .width = vsapi->getFrameWidth(frame, j),
+                .height = vsapi->getFrameHeight(frame, j),
+                .pixel_stride = 2,
+                .row_stride =  vsapi->getStride(frame, j),
+                .pixels = vsapi->getReadPtr((VSFrameRef *) frame, j),
             };
 
             planes[j].component_size[0] = 16;
@@ -212,18 +221,24 @@ static const VSFrameRef *VS_CC SGetFrame(int n, int activationReason, void **ins
             planes[j].component_map[0] = j;
         }
 
-        void * packed_dst = malloc(d->width*d->height*2*3);
+        void * packed_dst = malloc(d->width * d->height * 2 * 3);
+
         pthread_mutex_lock(&d->lock);
+
         if (config_S(d->vf, planes, vsapi, d)) {
             filter_S(d->vf, packed_dst, planes, d, n, vsapi);
         }
+
         pthread_mutex_unlock(&d->lock);
 
-        struct p2p_buffer_param pack_params = {};
-        pack_params.width = d->width; pack_params.height = d->height;
-        pack_params.packing = p2p_bgr48_le;
-        pack_params.src[0] = packed_dst;
-        pack_params.src_stride[0] = d->width*3 * 2;
+        struct p2p_buffer_param pack_params = {
+            .width = d->width,
+            .height = d->height,
+            .packing = p2p_bgr48_le,
+            .src[0] = packed_dst,
+            .src_stride[0] = d->width * 2 * 3
+        };
+
         for (int k = 0; k < 3; ++k) {
             pack_params.dst[k] = vsapi->getWritePtr(dst, k);
             pack_params.dst_stride[k] = vsapi->getStride(dst, k);
