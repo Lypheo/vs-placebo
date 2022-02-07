@@ -28,12 +28,12 @@ typedef  struct {
     enum pl_color_transfer trc;
     bool linear;
     pthread_mutex_t lock;
-} SData;
+} ShaderData;
 
 
-bool do_plane_S(struct priv *p, void* data, int n, struct pl_plane* planes)
+bool vspl_shader_do_plane(struct priv *p, void* data, int n, struct pl_plane* planes)
 {
-    SData* d = (SData*) data;
+    ShaderData* d = (ShaderData*) data;
 
     const struct pl_color_repr crpr = {
         .bits = {
@@ -85,7 +85,7 @@ bool do_plane_S(struct priv *p, void* data, int n, struct pl_plane* planes)
     return pl_render_image(p->rr, &img, &out, &renderParams);
 }
 
-bool config_S(void *priv, struct pl_plane_data *data, const VSAPI *vsapi, SData* d)
+bool vspl_shader_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *vsapi, ShaderData* d)
 {
     struct priv *p = priv;
 
@@ -135,7 +135,7 @@ bool config_S(void *priv, struct pl_plane_data *data, const VSAPI *vsapi, SData*
     return true;
 }
 
-bool filter_S(void *priv, void *dst, struct pl_plane_data *src,  SData* d, int n, const VSAPI *vsapi)
+bool vspl_shader_filter(void *priv, void *dst, struct pl_plane_data *src,  ShaderData* d, int n, const VSAPI *vsapi)
 {
     struct priv *p = priv;
     // Upload planes
@@ -152,7 +152,7 @@ bool filter_S(void *priv, void *dst, struct pl_plane_data *src,  SData* d, int n
     }
 
     // Process plane
-    if (!do_plane_S(p, d, n, planes)) {
+    if (!vspl_shader_do_plane(p, d, n, planes)) {
         vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
@@ -171,8 +171,8 @@ bool filter_S(void *priv, void *dst, struct pl_plane_data *src,  SData* d, int n
     return true;
 }
 
-static void VS_CC SInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
-    SData *d = (SData *) * instanceData;
+static void VS_CC VSPlaceboShaderInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
+    ShaderData *d = (ShaderData *) * instanceData;
     VSVideoInfo new_vi = (VSVideoInfo) * (d->vi);
     new_vi.width = d->width;
     new_vi.height = d->height;
@@ -181,8 +181,8 @@ static void VS_CC SInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node
     vsapi->setVideoInfo(&new_vi, 1, node);
 }
 
-static const VSFrameRef *VS_CC SGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
-    SData *d = (SData *) * instanceData;
+static const VSFrameRef *VS_CC VSPlaceboShaderGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
+    ShaderData *d = (ShaderData *) * instanceData;
 
     if (activationReason == arInitial) {
         vsapi->requestFrameFilter(n, d->node, frameCtx);
@@ -225,8 +225,8 @@ static const VSFrameRef *VS_CC SGetFrame(int n, int activationReason, void **ins
 
         pthread_mutex_lock(&d->lock);
 
-        if (config_S(d->vf, planes, vsapi, d)) {
-            filter_S(d->vf, packed_dst, planes, d, n, vsapi);
+        if (vspl_shader_reconfig(d->vf, planes, vsapi, d)) {
+            vspl_shader_filter(d->vf, packed_dst, planes, d, n, vsapi);
         }
 
         pthread_mutex_unlock(&d->lock);
@@ -254,21 +254,21 @@ static const VSFrameRef *VS_CC SGetFrame(int n, int activationReason, void **ins
     return 0;
 }
 
-static void VS_CC SFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
-    SData *d = (SData *)instanceData;
+static void VS_CC VSPlaceboShaderFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
+    ShaderData *d = (ShaderData *)instanceData;
     vsapi->freeNode(d->node);
     pl_mpv_user_shader_destroy(&d->shader);
     free((void *) d->sampleParams->filter.kernel);
     free(d->sampleParams);
     free(d->sigmoid_params);
-    uninit(d->vf);
+    VSPlaceboUninit(d->vf);
     pthread_mutex_destroy(&d->lock);
     free(d);
 }
 
-void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
-    SData d;
-    SData *data;
+void VS_CC VSPlaceboShaderCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
+    ShaderData d;
+    ShaderData *data;
     int err;
 
     if (pthread_mutex_init(&d.lock, NULL) != 0) {
@@ -310,12 +310,12 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
 
-    d.vf = init();
+    d.vf = VSPlaceboInit();
     d.shader = pl_mpv_user_shader_parse(d.vf->gpu, shader, strlen(shader));
     free(shader);
 
     if (!d.shader) {
-        uninit(d.vf);
+        VSPlaceboUninit(d.vf);
         pl_mpv_user_shader_destroy(&d.shader);
         vsapi->setError(out, "placebo.Shader: Failed parsing shader!");
         vsapi->freeNode(d.node);
@@ -429,5 +429,5 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
     data = malloc(sizeof(d));
     *data = d;
 
-    vsapi->createFilter(in, out, "Shader", SInit, SGetFrame, SFree, fmParallel, 0, data, core);
+    vsapi->createFilter(in, out, "Shader", VSPlaceboShaderInit, VSPlaceboShaderGetFrame, VSPlaceboShaderFree, fmParallel, 0, data, core);
 }

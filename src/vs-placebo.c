@@ -10,7 +10,7 @@
 #include "resample.h"
 #include "shader.h"
 
-void *init(void) {
+void *VSPlaceboInit(void) {
     struct priv *p = calloc(1, sizeof(struct priv));
     if (!p)
         return NULL;
@@ -58,7 +58,7 @@ error:
     return NULL;
 }
 
-void uninit(void *priv)
+void VSPlaceboUninit(void *priv)
 {
     struct priv *p = priv;
     for (int i = 0; i < MAX_PLANES; i++) {
@@ -78,12 +78,12 @@ void uninit(void *priv)
 VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegisterFunction registerFunc, VSPlugin *plugin) {
     configFunc("com.vs.placebo", "placebo", "libplacebo plugin for VapourSynth", VAPOURSYNTH_API_VERSION, 1, plugin);
     registerFunc("Deband", "clip:clip;planes:int:opt;iterations:int:opt;threshold:float:opt;"
-                           "radius:float:opt;grain:float:opt;dither:int:opt;dither_algo:int:opt;", DebandCreate, 0, plugin);
+                           "radius:float:opt;grain:float:opt;dither:int:opt;dither_algo:int:opt;", VSPlaceboDebandCreate, 0, plugin);
 
     registerFunc("Resample", "clip:clip;width:int;height:int;filter:data:opt;clamp:float:opt;blur:float:opt;"
                              "taper:float:opt;radius:float:opt;param1:float:opt;param2:float:opt;"
                              "sx:float:opt;sy:float:opt;antiring:float:opt;lut_entries:int:opt;cutoff:float:opt;"
-                             "sigmoidize:int:opt;sigmoid_center:float:opt;sigmoid_slope:float:opt;linearize:int:opt;trc:int:opt;", ResampleCreate, 0, plugin);
+                             "sigmoidize:int:opt;sigmoid_center:float:opt;sigmoid_slope:float:opt;linearize:int:opt;trc:int:opt;", VSPlaceboResampleCreate, 0, plugin);
 
     registerFunc("Tonemap", "clip:clip;"
                             "src_csp:int:opt;dst_csp:int:opt;"
@@ -94,11 +94,11 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegiste
                             "intent:int:opt;"
                             "gamut_mode:int:opt;"
                             "tone_mapping_function:int:opt;tone_mapping_mode:int:opt;"
-                            "tone_mapping_param:float:opt;tone_mapping_crosstalk:float:opt;", TMCreate, 0, plugin);
+                            "tone_mapping_param:float:opt;tone_mapping_crosstalk:float:opt;", VSPlaceboTMCreate, 0, plugin);
 
     registerFunc("Shader", "clip:clip;shader:data:opt;width:int:opt;height:int:opt;chroma_loc:int:opt;matrix:int:opt;trc:int:opt;"
                            "linearize:int:opt;sigmoidize:int:opt;sigmoid_center:float:opt;sigmoid_slope:float:opt;"
                            "lut_entries:int:opt;antiring:float:opt;"
                            "filter:data:opt;clamp:float:opt;blur:float:opt;taper:float:opt;radius:float:opt;"
-                           "param1:float:opt;param2:float:opt;shader_s:data:opt;", SCreate, 0, plugin);
+                           "param1:float:opt;param2:float:opt;shader_s:data:opt;", VSPlaceboShaderCreate, 0, plugin);
 }

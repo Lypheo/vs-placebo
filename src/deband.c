@@ -19,11 +19,11 @@ typedef struct {
     uint8_t frame_index;
 
     pthread_mutex_t lock;
-} MData;
+} DebandData;
 
 bool vspl_deband_do_plane(struct priv *p, void* data)
 {
-    MData* d = (MData*) data;
+    DebandData* d = (DebandData*) data;
 
     pl_shader sh = pl_dispatch_begin(p->dp);
     pl_shader_reset(sh, pl_shader_params(
@@ -126,14 +126,14 @@ bool vspl_deband_filter(void *priv, VSFrameRef *dst, const struct pl_plane_data 
     return true;
 }
 
-static void VS_CC DebandInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
-    MData *d = (MData *) * instanceData;
+static void VS_CC VSPlaceboDebandInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
+    DebandData *d = (DebandData *) * instanceData;
     VSVideoInfo new_vi = (VSVideoInfo) * (d->vi);
     vsapi->setVideoInfo(&new_vi, 1, node);
 }
 
-static const VSFrameRef *VS_CC DebandGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
-    MData *d = (MData *) * instanceData;
+static const VSFrameRef *VS_CC VSPlaceboDebandGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
+    DebandData *d = (DebandData *) * instanceData;
 
     if (activationReason == arInitial) {
         vsapi->requestFrameFilter(n, d->node, frameCtx);
@@ -185,19 +185,19 @@ static const VSFrameRef *VS_CC DebandGetFrame(int n, int activationReason, void 
     return 0;
 }
 
-static void VS_CC DebandFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
-    MData *d = (MData *) instanceData;
+static void VS_CC VSPlaceboDebandFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
+    DebandData *d = (DebandData *) instanceData;
     vsapi->freeNode(d->node);
-    uninit(d->vf);
+    VSPlaceboUninit(d->vf);
     free(d->ditherParams);
     free(d->debandParams);
     pthread_mutex_destroy(&d->lock);
     free(d);
 }
 
-void VS_CC DebandCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
-    MData d;
-    MData *data;
+void VS_CC VSPlaceboDebandCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
+    DebandData d;
+    DebandData *data;
     int err;
 
     if (pthread_mutex_init(&d.lock, NULL) != 0)
@@ -214,7 +214,7 @@ void VS_CC DebandCreate(const VSMap *in, VSMap *out, void *userData, VSCore *cor
         vsapi->freeNode(d.node);
     }
 
-    d.vf = init();
+    d.vf = VSPlaceboInit();
 
     d.dither = vsapi->propGetInt(in, "dither", 0, &err) && d.vi->format->bitsPerSample == 8;
     if (err)
@@ -248,5 +248,5 @@ void VS_CC DebandCreate(const VSMap *in, VSMap *out, void *userData, VSCore *cor
     data = malloc(sizeof(d));
     *data = d;
 
-    vsapi->createFilter(in, out, "Deband", DebandInit, DebandGetFrame, DebandFree, fmParallel, 0, data, core);
+    vsapi->createFilter(in, out, "Deband", VSPlaceboDebandInit, VSPlaceboDebandGetFrame, VSPlaceboDebandFree, fmParallel, 0, data, core);
 }

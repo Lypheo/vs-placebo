@@ -40,7 +40,7 @@ struct priv {
     const struct pl_tex *tex_out[MAX_PLANES];
 };
 
-void *init(void);
-void uninit(void *priv);
+void *VSPlaceboInit(void);
+void VSPlaceboUninit(void *priv);
 
 #endif //VS_PLACEBO_LIBRARY_H

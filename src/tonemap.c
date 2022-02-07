@@ -43,7 +43,7 @@ typedef struct {
     enum pl_chroma_location chromaLocation;
 } TMData;
 
-bool do_plane_TM(TMData *tm_data, int n, struct pl_plane* planes,
+bool vspl_tonemap_do_plane(TMData *tm_data, int n, struct pl_plane* planes,
                  const struct pl_color_repr src_repr, const struct pl_color_repr dst_repr)
 {
     struct priv *p = tm_data->vf;
@@ -73,7 +73,7 @@ bool do_plane_TM(TMData *tm_data, int n, struct pl_plane* planes,
     return pl_render_image(p->rr, &img, &out, tm_data->renderParams);
 }
 
-bool config_TM(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
+bool vspl_tonemap_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
 {
     struct priv *p = priv;
 
@@ -125,7 +125,7 @@ bool config_TM(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
     return true;
 }
 
-bool filter_TM(TMData *tm_data, void *dst, struct pl_plane_data *src, int n, const VSAPI *vsapi,
+bool vspl_tonemap_filter(TMData *tm_data, void *dst, struct pl_plane_data *src, int n, const VSAPI *vsapi,
                const struct pl_color_repr src_repr, const struct pl_color_repr dst_repr)
 {
     struct priv *p = tm_data->vf;
@@ -144,7 +144,7 @@ bool filter_TM(TMData *tm_data, void *dst, struct pl_plane_data *src, int n, con
     }
 
     // Process plane
-    if (!do_plane_TM(tm_data, n, planes, src_repr, dst_repr)) {
+    if (!vspl_tonemap_do_plane(tm_data, n, planes, src_repr, dst_repr)) {
         vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
@@ -166,7 +166,7 @@ bool filter_TM(TMData *tm_data, void *dst, struct pl_plane_data *src, int n, con
     return true;
 }
 
-static void VS_CC TMInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
+static void VS_CC VSPlaceboTMInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
     TMData *d = (TMData *) * instanceData;
     VSVideoInfo new_vi = (VSVideoInfo) * (d->vi);
     const VSFormat f = *new_vi.format;
@@ -176,7 +176,7 @@ static void VS_CC TMInit(VSMap *in, VSMap *out, void **instanceData, VSNode *nod
     vsapi->setVideoInfo(&new_vi, 1, node);
 }
 
-static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **instanceData, void **frameData,
+static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, void **instanceData, void **frameData,
                                           VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi)
 {
     TMData *tm_data = (TMData *) * instanceData;
@@ -382,8 +382,8 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
         void *packed_dst = malloc(w * h * 2 * 3);
         pthread_mutex_lock(&tm_data->lock); // libplacebo isn’t thread-safe
 
-        if (config_TM(tm_data->vf, planes, vsapi)) {
-            filter_TM(tm_data, packed_dst, planes, n, vsapi, src_repr, dst_repr);
+        if (vspl_tonemap_reconfig(tm_data->vf, planes, vsapi)) {
+            vspl_tonemap_filter(tm_data, packed_dst, planes, n, vsapi, src_repr, dst_repr);
         }
 
         pthread_mutex_unlock(&tm_data->lock);
@@ -416,10 +416,10 @@ static const VSFrameRef *VS_CC TMGetFrame(int n, int activationReason, void **in
     return 0;
 }
 
-static void VS_CC TMFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
+static void VS_CC VSPlaceboTMFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
     TMData *tm_data = (TMData *) instanceData;
     vsapi->freeNode(tm_data->node);
-    uninit(tm_data->vf);
+    VSPlaceboUninit(tm_data->vf);
 
     free((void *) tm_data->src_pl_csp);
     free((void *) tm_data->dst_pl_csp);
@@ -431,7 +431,7 @@ static void VS_CC TMFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
     free(tm_data);
 }
 
-void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
+void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
     TMData d;
     TMData *tm_data;
     int err;
@@ -445,7 +445,7 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
 
-    d.vf = init();
+    d.vf = VSPlaceboInit();
 
     if (d.vi->format->bitsPerSample != 16) {
         vsapi->setError(out, "placebo.Tonemap: Input must be 16 bits per sample!");
@@ -580,5 +580,5 @@ void VS_CC TMCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, c
     tm_data = malloc(sizeof(d));
     *tm_data = d;
 
-    vsapi->createFilter(in, out, "Tonemap", TMInit, TMGetFrame, TMFree, fmParallel, 0, tm_data, core);
+    vsapi->createFilter(in, out, "Tonemap", VSPlaceboTMInit, VSPlaceboTMGetFrame, VSPlaceboTMFree, fmParallel, 0, tm_data, core);
 }

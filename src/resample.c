@@ -25,11 +25,11 @@ typedef struct {
     enum pl_color_transfer trc;
     bool linear;
     pthread_mutex_t lock;
-} RData;
+} ResampleData;
 
-bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, float sx, float sy)
+bool vspl_resample_do_plane(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, float sx, float sy)
 {
-    RData* d = (RData*) data;
+    ResampleData* d = (ResampleData*) data;
     pl_shader sh = pl_dispatch_begin(p->dp);
     const struct pl_tex *sample_fbo = NULL;
     const struct pl_tex *sep_fbo = NULL;
@@ -163,7 +163,7 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
 
 }
 
-bool reconfig_R(void *priv, struct pl_plane_data *data, int w, int h, const VSAPI *vsapi)
+bool vspl_resample_reconfig(void *priv, struct pl_plane_data *data, int w, int h, const VSAPI *vsapi)
 {
     struct priv *p = priv;
 
@@ -199,7 +199,7 @@ bool reconfig_R(void *priv, struct pl_plane_data *data, int w, int h, const VSAP
     return true;
 }
 
-bool filter_R(void *priv, VSFrameRef *dst, struct pl_plane_data *src, void* d, int w, int h, float sx, float sy, const VSAPI *vsapi, int planeIdx)
+bool vspl_resample_filter(void *priv, VSFrameRef *dst, struct pl_plane_data *src, void* d, int w, int h, float sx, float sy, const VSAPI *vsapi, int planeIdx)
 {
     struct priv *p = priv;
 
@@ -219,7 +219,7 @@ bool filter_R(void *priv, VSFrameRef *dst, struct pl_plane_data *src, void* d, i
         return false;
     }
     // Process plane
-    if (!do_plane_R(p, d, w, h, vsapi, sx, sy)) {
+    if (!vspl_resample_do_plane(p, d, w, h, vsapi, sx, sy)) {
         vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
@@ -242,16 +242,16 @@ bool filter_R(void *priv, VSFrameRef *dst, struct pl_plane_data *src, void* d, i
     return true;
 }
 
-static void VS_CC ResampleInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
-    RData *d = (RData *) * instanceData;
+static void VS_CC VSPlaceboResampleInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
+    ResampleData *d = (ResampleData *) * instanceData;
     VSVideoInfo new_vi = (VSVideoInfo) * (d->vi);
     new_vi.width = d->width;
     new_vi.height = d->height;
     vsapi->setVideoInfo(&new_vi, 1, node);
 }
 
-static const VSFrameRef *VS_CC ResampleGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
-    RData *d = (RData *) * instanceData;
+static const VSFrameRef *VS_CC VSPlaceboResampleGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
+    ResampleData *d = (ResampleData *) * instanceData;
 
     if (activationReason == arInitial) {
         vsapi->requestFrameFilter(n, d->node, frameCtx);
@@ -282,8 +282,8 @@ static const VSFrameRef *VS_CC ResampleGetFrame(int n, int activationReason, voi
 
             pthread_mutex_lock(&d->lock);
 
-            if (reconfig_R(d->vf, &plane, w, h, vsapi)) {
-                filter_R(d->vf, dst, &plane, d, w, h, sx, sy, vsapi, i);
+            if (vspl_resample_reconfig(d->vf, &plane, w, h, vsapi)) {
+                vspl_resample_filter(d->vf, dst, &plane, d, w, h, sx, sy, vsapi, i);
             }
 
             pthread_mutex_unlock(&d->lock);
@@ -296,21 +296,21 @@ static const VSFrameRef *VS_CC ResampleGetFrame(int n, int activationReason, voi
     return 0;
 }
 
-static void VS_CC ResampleFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
-    RData *d = (RData *) instanceData;
+static void VS_CC VSPlaceboResampleFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
+    ResampleData *d = (ResampleData *) instanceData;
     vsapi->freeNode(d->node);
     pl_shader_obj_destroy(&d->lut);
     free((void *) d->sampleParams->filter.kernel);
     free(d->sampleParams);
     free(d->sigmoid_params);
-    uninit(d->vf);
+    VSPlaceboUninit(d->vf);
     pthread_mutex_destroy(&d->lock);
     free(d);
 }
 
-void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
-    RData d;
-    RData *data;
+void VS_CC VSPlaceboResampleCreate(const VSMap *in, VSMap *out, void *useResampleData, VSCore *core, const VSAPI *vsapi) {
+    ResampleData d;
+    ResampleData *data;
     int err;
     if (pthread_mutex_init(&d.lock, NULL) != 0)
     {
@@ -326,7 +326,7 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
         vsapi->freeNode(d.node);
     }
 
-    d.vf = init();
+    d.vf = VSPlaceboInit();
 
     d.width = vsapi->propGetInt(in, "width", 0, &err);
     if (err)
@@ -433,5 +433,5 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     data = malloc(sizeof(d));
     *data = d;
 
-    vsapi->createFilter(in, out, "Resample", ResampleInit, ResampleGetFrame, ResampleFree, fmParallel, 0, data, core);
+    vsapi->createFilter(in, out, "Resample", VSPlaceboResampleInit, VSPlaceboResampleGetFrame, VSPlaceboResampleFree, fmParallel, 0, data, core);
 }
