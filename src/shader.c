@@ -270,11 +270,16 @@ void VS_CC VSPlaceboShaderCreate(const VSMap *in, VSMap *out, void *userData, VS
     ShaderData d;
     ShaderData *data;
     int err;
+    enum pl_log_level log_level;
 
     if (pthread_mutex_init(&d.lock, NULL) != 0) {
         vsapi->setError(out, "placebo.Shader: mutex init failed\n");
         return;
     }
+
+    log_level = vsapi->propGetInt(in, "log_level", 0, &err);
+    if (err)
+        log_level = PL_LOG_ERR;
 
     const char* sh = vsapi->propGetData(in, "shader", 0, &err);
     char *shader;
@@ -310,7 +315,7 @@ void VS_CC VSPlaceboShaderCreate(const VSMap *in, VSMap *out, void *userData, VS
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
 
-    d.vf = VSPlaceboInit();
+    d.vf = VSPlaceboInit(log_level);
     d.shader = pl_mpv_user_shader_parse(d.vf->gpu, shader, strlen(shader));
     free(shader);
 

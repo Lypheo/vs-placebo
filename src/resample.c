@@ -312,11 +312,17 @@ void VS_CC VSPlaceboResampleCreate(const VSMap *in, VSMap *out, void *useResampl
     ResampleData d;
     ResampleData *data;
     int err;
+    enum pl_log_level log_level;
+
     if (pthread_mutex_init(&d.lock, NULL) != 0)
     {
         vsapi->setError(out, "placebo.Resample: mutex init failed\n");
         return;
     }
+
+    log_level = vsapi->propGetInt(in, "log_level", 0, &err);
+    if (err)
+        log_level = PL_LOG_ERR;
 
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
@@ -326,7 +332,7 @@ void VS_CC VSPlaceboResampleCreate(const VSMap *in, VSMap *out, void *useResampl
         vsapi->freeNode(d.node);
     }
 
-    d.vf = VSPlaceboInit();
+    d.vf = VSPlaceboInit(log_level);
 
     d.width = vsapi->propGetInt(in, "width", 0, &err);
     if (err)

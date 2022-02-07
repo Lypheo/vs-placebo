@@ -199,12 +199,17 @@ void VS_CC VSPlaceboDebandCreate(const VSMap *in, VSMap *out, void *userData, VS
     DebandData d;
     DebandData *data;
     int err;
+    enum pl_log_level log_level;
 
     if (pthread_mutex_init(&d.lock, NULL) != 0)
     {
         vsapi->setError(out, "placebo.Deband: mutex init failed\n");
         return;
     }
+
+    log_level = vsapi->propGetInt(in, "log_level", 0, &err);
+    if (err)
+        log_level = PL_LOG_ERR;
 
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
@@ -214,7 +219,7 @@ void VS_CC VSPlaceboDebandCreate(const VSMap *in, VSMap *out, void *userData, VS
         vsapi->freeNode(d.node);
     }
 
-    d.vf = VSPlaceboInit();
+    d.vf = VSPlaceboInit(log_level);
 
     d.dither = vsapi->propGetInt(in, "dither", 0, &err) && d.vi->format->bitsPerSample == 8;
     if (err)
