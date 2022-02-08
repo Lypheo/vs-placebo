@@ -84,6 +84,13 @@ using the supplied filter options, which are identical to ``Resample``’s.
 
 &nbsp;
 
+### Debugging `libplacebo` processing
+
+All the filters can take a `log_level` argument corresponding to a `pl_log_level`.  
+Defaults to 2, meaning only errors are logged.
+
+&nbsp;
+
 ### Installing
 
 If you’re on Arch, just do

@@ -25,49 +25,53 @@ typedef struct {
     enum pl_color_transfer trc;
     bool linear;
     pthread_mutex_t lock;
-} RData;
+} ResampleData;
 
-bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, float sx, float sy)
+bool vspl_resample_do_plane(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, float sx, float sy)
 {
-    RData* d = (RData*) data;
-    struct pl_shader *sh = pl_dispatch_begin(p->dp);
+    ResampleData* d = (ResampleData*) data;
+    pl_shader sh = pl_dispatch_begin(p->dp);
     const struct pl_tex *sample_fbo = NULL;
     const struct pl_tex *sep_fbo = NULL;
+
     struct pl_sample_filter_params sampleFilterParams = *d->sampleParams;
     sampleFilterParams.lut = &d->lut;
 
-    struct pl_color_space color = (struct pl_color_space) {
+    struct pl_color_space *color = pl_color_space(
         .transfer = d->trc
-    };
+    );
 
-    struct pl_sample_src src = (struct pl_sample_src) {
+    struct pl_sample_src *src = pl_sample_src(
         .tex = p->tex_in[0]
-    };
+    );
 
     //
     // linearization and sigmoidization
     //
 
-    struct pl_shader *ish = pl_dispatch_begin(p->dp);
-    struct pl_tex_params tex_params = {
-        .w = src.tex->params.w,
-        .h = src.tex->params.h,
+    pl_shader ish = pl_dispatch_begin(p->dp);
+    struct pl_tex_params *tex_params = pl_tex_params(
+        .w = src->tex->params.w,
+        .h = src->tex->params.h,
         .renderable = true,
         .sampleable = true,
-        .format = src.tex->params.format
-    };
+        .format = src->tex->params.format
+    );
 
-    if (!pl_tex_recreate(p->gpu, &sample_fbo, &tex_params))
+    if (!pl_tex_recreate(p->gpu, &sample_fbo, tex_params))
         vsapi->logMessage(mtCritical, "failed creating intermediate color texture!\n");
 
-    pl_shader_sample_direct(ish, &src);
+    pl_shader_sample_direct(ish, src);
     if (d->linear)
-        pl_shader_linearize(ish, &color);
+        pl_shader_linearize(ish, color);
 
     if (d->sigmoid_params)
         pl_shader_sigmoidize(ish, d->sigmoid_params);
 
-    if (!pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = sample_fbo, .shader = &ish})) {
+    if (!pl_dispatch_finish(p->dp, pl_dispatch_params(
+        .target = sample_fbo,
+        .shader = &ish
+    ))) {
         vsapi->logMessage(mtCritical, "Failed linearizing/sigmoidizing! \n");
         return false;
     }
@@ -77,40 +81,44 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
     //
 
     struct pl_rect2df rect = {
-            sx,
-            sy,
-            p->tex_in[0]->params.w + sx,
-            p->tex_in[0]->params.h + sy,
+        sx,
+        sy,
+        p->tex_in[0]->params.w + sx,
+        p->tex_in[0]->params.h + sy,
     };
-    src.tex = sample_fbo;
-    src.rect = rect;
-    src.new_h = h; src.new_w = w;
+    src->tex = sample_fbo;
+    src->rect = rect;
+    src->new_h = h;
+    src->new_w = w;
 
     if (d->sampleParams->filter.polar) {
-        if (!pl_shader_sample_polar(sh, &src, &sampleFilterParams))
+        if (!pl_shader_sample_polar(sh, src, &sampleFilterParams))
             vsapi->logMessage(mtCritical, "Failed dispatching scaler...\n");
     } else {
         struct pl_shader *tsh = pl_dispatch_begin(p->dp);
 
-        if (!pl_shader_sample_ortho(tsh, PL_SEP_VERT, &src, &sampleFilterParams)) {
+        if (!pl_shader_sample_ortho(tsh, PL_SEP_VERT, src, &sampleFilterParams)) {
             vsapi->logMessage(mtCritical, "Failed dispatching vertical pass!\n");
             pl_dispatch_abort(p->dp, &tsh);
         }
 
-        struct pl_sample_src src2 = src;
-        struct pl_tex_params tex_params = {
-            .w = src.tex->params.w,
-            .h = src.new_h,
+        struct pl_sample_src src2 = *src;
+        struct pl_tex_params *tex_params = pl_tex_params(
+            .w = src->tex->params.w,
+            .h = src->new_h,
             .renderable = true,
             .sampleable = true,
-            .format = src.tex->params.format,
-        };
+            .format = src->tex->params.format,
+        );
 
-        if (!pl_tex_recreate(p->gpu, &sep_fbo, &tex_params))
+        if (!pl_tex_recreate(p->gpu, &sep_fbo, tex_params))
             vsapi->logMessage(mtCritical, "failed creating intermediate texture!\n");
 
         src2.tex = sep_fbo;
-        if (!pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = sep_fbo, .shader = &tsh})) {
+        if (!pl_dispatch_finish(p->dp, pl_dispatch_params (
+            .target = sep_fbo,
+            .shader = &tsh
+        ))) {
             vsapi->logMessage(mtCritical, "Failed rendering vertical pass! \n");
             return false;
         }
@@ -123,10 +131,14 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
         pl_shader_unsigmoidize(sh, d->sigmoid_params);
 
     if (d->linear)
-        pl_shader_delinearize(sh, &color);
+        pl_shader_delinearize(sh, color);
 
 
-    bool ok = pl_dispatch_finish(p->dp, &(struct pl_dispatch_params) {.target = p->tex_out[0], .shader = &sh});
+    bool ok = pl_dispatch_finish(p->dp, pl_dispatch_params(
+        .target = p->tex_out[0],
+        .shader = &sh
+    ));
+
     pl_tex_destroy(p->gpu, &sep_fbo);
     pl_tex_destroy(p->gpu, &sample_fbo);
     return ok;
@@ -151,7 +163,7 @@ bool do_plane_R(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, fl
 
 }
 
-bool reconfig_R(void *priv, struct pl_plane_data *data, int w, int h, const VSAPI *vsapi)
+bool vspl_resample_reconfig(void *priv, struct pl_plane_data *data, int w, int h, const VSAPI *vsapi)
 {
     struct priv *p = priv;
 
@@ -162,22 +174,22 @@ bool reconfig_R(void *priv, struct pl_plane_data *data, int w, int h, const VSAP
     }
 
     bool ok = true;
-    ok &= pl_tex_recreate(p->gpu, &p->tex_in[0], &(struct pl_tex_params) {
-            .w = data->width,
-            .h = data->height,
-            .format = fmt,
-            .sampleable = true,
-            .host_writable = true,
-    });
+    ok &= pl_tex_recreate(p->gpu, &p->tex_in[0], pl_tex_params(
+        .w = data->width,
+        .h = data->height,
+        .format = fmt,
+        .sampleable = true,
+        .host_writable = true,
+    ));
 
-    ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], &(struct pl_tex_params) {
-            .w = w,
-            .h = h,
-            .format = fmt,
-            .renderable = true,
-            .host_readable = true,
-            .storable = true,
-    });
+    ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], pl_tex_params(
+        .w = w,
+        .h = h,
+        .format = fmt,
+        .renderable = true,
+        .host_readable = true,
+        .storable = true,
+    ));
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed creating GPU textures!\n");
@@ -187,34 +199,40 @@ bool reconfig_R(void *priv, struct pl_plane_data *data, int w, int h, const VSAP
     return true;
 }
 
-bool filter_R(void *priv, void *dst, struct pl_plane_data *src, void* d, int w, int h, int dst_stride, const VSAPI *vsapi, float sx, float sy)
+bool vspl_resample_filter(void *priv, VSFrameRef *dst, struct pl_plane_data *src, void* d, int w, int h, float sx, float sy, const VSAPI *vsapi, int planeIdx)
 {
     struct priv *p = priv;
 
+    pl_fmt in_fmt = p->tex_in[0]->params.format;
+    pl_fmt out_fmt = p->tex_out[0]->params.format;
+
     // Upload planes
     bool ok = true;
-    ok &= pl_tex_upload(p->gpu, &(struct pl_tex_transfer_params) {
-            .tex = p->tex_in[0],
-            .stride_w = src->row_stride / src->pixel_stride,
-            .ptr = (void *) src->pixels,
-    });
+    ok &= pl_tex_upload(p->gpu, pl_tex_transfer_params(
+        .tex = p->tex_in[0],
+        .row_pitch = (src->row_stride / src->pixel_stride) * in_fmt->texel_size,
+        .ptr = (void *) src->pixels,
+    ));
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed uploading data to the GPU!\n");
         return false;
     }
     // Process plane
-    if (!do_plane_R(p, d, w, h, vsapi, sx, sy)) {
+    if (!vspl_resample_do_plane(p, d, w, h, vsapi, sx, sy)) {
         vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
 
+    uint8_t *dst_ptr = vsapi->getWritePtr(dst, planeIdx);
+    int dst_row_pitch = (vsapi->getStride(dst, planeIdx) / src->pixel_stride) * out_fmt->texel_size;
+
     // Download planes
-    ok = pl_tex_download(p->gpu, &(struct pl_tex_transfer_params) {
-            .tex = p->tex_out[0],
-            .stride_w = dst_stride,
-            .ptr = dst,
-    });
+    ok = pl_tex_download(p->gpu, pl_tex_transfer_params(
+        .tex = p->tex_out[0],
+        .row_pitch = dst_row_pitch,
+        .ptr = (void *) dst_ptr,
+    ));
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed downloading data from the GPU!\n");
@@ -224,46 +242,50 @@ bool filter_R(void *priv, void *dst, struct pl_plane_data *src, void* d, int w, 
     return true;
 }
 
-static void VS_CC ResampleInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
-    RData *d = (RData *) * instanceData;
+static void VS_CC VSPlaceboResampleInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
+    ResampleData *d = (ResampleData *) * instanceData;
     VSVideoInfo new_vi = (VSVideoInfo) * (d->vi);
     new_vi.width = d->width;
     new_vi.height = d->height;
     vsapi->setVideoInfo(&new_vi, 1, node);
 }
 
-static const VSFrameRef *VS_CC ResampleGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
-    RData *d = (RData *) * instanceData;
+static const VSFrameRef *VS_CC VSPlaceboResampleGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
+    ResampleData *d = (ResampleData *) * instanceData;
 
     if (activationReason == arInitial) {
         vsapi->requestFrameFilter(n, d->node, frameCtx);
     } else if (activationReason == arAllFramesReady) {
         const VSFrameRef *frame = vsapi->getFrameFilter(n, d->node, frameCtx);
 
-        VSFrameRef *dst = vsapi->newVideoFrame(d->vi->format, d->width, d->height, frame, core);
+        const VSFormat *srcFmt = d->vi->format;
+        VSFrameRef *dst = vsapi->newVideoFrame(srcFmt, d->width, d->height, frame, core);
 
-        for (unsigned int i=0; i < d->vi->format->numPlanes; i++) {
+        for (unsigned int i = 0; i < srcFmt->numPlanes; i++) {
             struct pl_plane_data plane = {
-                    .type = d->vi->format->sampleType == stInteger ? PL_FMT_UNORM : PL_FMT_FLOAT,
-                    .width = vsapi->getFrameWidth(frame, i),
-                    .height = vsapi->getFrameHeight(frame, i),
-                    .pixel_stride = 1 /* components */ * d->vi->format->bytesPerSample /* bytes per sample*/,
-                    .row_stride =  vsapi->getStride(frame, i),
-                    .pixels =  vsapi->getWritePtr((VSFrameRef *) frame, i),
-                    .component_size[0] = d->vi->format->bitsPerSample,
-                    .component_pad[0] = 0,
-                    .component_map[0] = 0,
+                .type = srcFmt->sampleType == stInteger ? PL_FMT_UNORM : PL_FMT_FLOAT,
+                .width = vsapi->getFrameWidth(frame, i),
+                .height = vsapi->getFrameHeight(frame, i),
+                .pixel_stride = srcFmt->bytesPerSample,
+                .row_stride = vsapi->getStride(frame, i),
+                .pixels = vsapi->getReadPtr((VSFrameRef *) frame, i),
+                .component_size[0] = srcFmt->bitsPerSample,
+                .component_pad[0] = 0,
+                .component_map[0] = 0,
             };
 
-            bool shift = d->vi->format->colorFamily == cmYUV && d->vi->format->subSamplingW == 1 && (i == 1 || i == 2);
+            bool shift = srcFmt->colorFamily == cmYUV && srcFmt->subSamplingW == 1 && (i == 1 || i == 2);
             float subsampling_shift = 0.25f - 0.25f * (float) d->vi->width / (float) d->width; // FIXME: support other subsampling ratios and chroma locations as well
             float sx = (shift ? subsampling_shift : 0.f) + d->src_x * vsapi->getFrameWidth(frame, i)/d->vi->width;
             float sy = d->src_y * vsapi->getFrameHeight(frame, i)/d->vi->height;
             int w = vsapi->getFrameWidth(dst, i), h = vsapi->getFrameHeight(dst, i);
 
             pthread_mutex_lock(&d->lock);
-            if (reconfig_R(d->vf, &plane, w, h, vsapi))
-                filter_R(d->vf, vsapi->getWritePtr(dst, i), &plane, d, w, h, vsapi->getStride(dst, i) / d->vi->format->bytesPerSample, vsapi, sx, sy);
+
+            if (vspl_resample_reconfig(d->vf, &plane, w, h, vsapi)) {
+                vspl_resample_filter(d->vf, dst, &plane, d, w, h, sx, sy, vsapi, i);
+            }
+
             pthread_mutex_unlock(&d->lock);
         }
 
@@ -274,27 +296,33 @@ static const VSFrameRef *VS_CC ResampleGetFrame(int n, int activationReason, voi
     return 0;
 }
 
-static void VS_CC ResampleFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
-    RData *d = (RData *)instanceData;
+static void VS_CC VSPlaceboResampleFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
+    ResampleData *d = (ResampleData *) instanceData;
     vsapi->freeNode(d->node);
     pl_shader_obj_destroy(&d->lut);
     free((void *) d->sampleParams->filter.kernel);
     free(d->sampleParams);
     free(d->sigmoid_params);
-    uninit(d->vf);
+    VSPlaceboUninit(d->vf);
     pthread_mutex_destroy(&d->lock);
     free(d);
 }
 
-void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
-    RData d;
-    RData *data;
+void VS_CC VSPlaceboResampleCreate(const VSMap *in, VSMap *out, void *useResampleData, VSCore *core, const VSAPI *vsapi) {
+    ResampleData d;
+    ResampleData *data;
     int err;
+    enum pl_log_level log_level;
+
     if (pthread_mutex_init(&d.lock, NULL) != 0)
     {
         vsapi->setError(out, "placebo.Resample: mutex init failed\n");
         return;
     }
+
+    log_level = vsapi->propGetInt(in, "log_level", 0, &err);
+    if (err)
+        log_level = PL_LOG_ERR;
 
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
@@ -304,7 +332,7 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
         vsapi->freeNode(d.node);
     }
 
-    d.vf = init();
+    d.vf = VSPlaceboInit(log_level);
 
     d.width = vsapi->propGetInt(in, "width", 0, &err);
     if (err)
@@ -326,6 +354,7 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     if (err) d.trc = 1;
 
     struct pl_sigmoid_params *sigmoidParams = malloc(sizeof(struct pl_sigmoid_params));
+    *sigmoidParams = pl_sigmoid_default_params;
 
     sigmoidParams->center = vsapi->propGetFloat(in, "sigmoid_center", 0, &err);
     if (err)
@@ -410,5 +439,5 @@ void VS_CC ResampleCreate(const VSMap *in, VSMap *out, void *userData, VSCore *c
     data = malloc(sizeof(d));
     *data = d;
 
-    vsapi->createFilter(in, out, "Resample", ResampleInit, ResampleGetFrame, ResampleFree, fmParallel, 0, data, core);
+    vsapi->createFilter(in, out, "Resample", VSPlaceboResampleInit, VSPlaceboResampleGetFrame, VSPlaceboResampleFree, fmParallel, 0, data, core);
 }

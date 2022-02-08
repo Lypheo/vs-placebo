@@ -28,22 +28,25 @@ typedef  struct {
     enum pl_color_transfer trc;
     bool linear;
     pthread_mutex_t lock;
-} SData;
+} ShaderData;
 
 
-bool do_plane_S(struct priv *p, void* data, int n, struct pl_plane* planes)
+bool vspl_shader_do_plane(struct priv *p, void* data, int n, struct pl_plane* planes)
 {
-    SData* d = (SData*) data;
-    for (int i = 1; i < 3; ++i) {
-        if (d->vi->format->subSamplingW == 1)
-            pl_chroma_location_offset(d->chromaLocation, &planes[i].shift_x, &planes[i].shift_y);
-        if (d->vi->format->subSamplingH == 1)
-            pl_chroma_location_offset(d->chromaLocation, &planes[i].shift_x, &planes[i].shift_y); // trust that users won’t specify chroma locs with vertical shifts for 422
-    }
+    ShaderData* d = (ShaderData*) data;
 
-    const struct pl_color_repr crpr = {.bits = {.sample_depth = 16, .color_depth = 16, .bit_shift = 0},
-                                              .sys = d->matrix, .levels = d->range};
-    const struct pl_color_space csp = {.transfer = d->trc};
+    const struct pl_color_repr crpr = {
+        .bits = {
+            .sample_depth = 16,
+            .color_depth = 16,
+            .bit_shift = 0
+        },
+        .sys = d->matrix,
+        .levels = d->range
+    };
+    const struct pl_color_space csp = {
+        .transfer = d->trc
+    };
 
     struct pl_frame img = {
         .num_planes = 3,
@@ -51,6 +54,10 @@ bool do_plane_S(struct priv *p, void* data, int n, struct pl_plane* planes)
         .planes = {planes[0], planes[1], planes[2]},
         .color = csp,
     };
+
+    if (d->vi->format->subSamplingW || d->vi->format->subSamplingH) {
+        pl_frame_set_chroma_location(&img, d->chromaLocation);
+    }
 
     struct pl_frame out = {
         .num_planes = 1,
@@ -64,19 +71,21 @@ bool do_plane_S(struct priv *p, void* data, int n, struct pl_plane* planes)
     };
 
     struct pl_render_params renderParams = {
-            .hooks = &d->shader, .num_hooks = 1,
-            .sigmoid_params = d->sigmoid_params,
-            .disable_linear_scaling = !d->linear,
-            .upscaler = &d->sampleParams->filter,
-            .downscaler = &d->sampleParams->filter,
-            .antiringing_strength = d->sampleParams->antiring,
-            .lut_entries = d->sampleParams->lut_entries,
-            .polar_cutoff = d->sampleParams->cutoff
+        .hooks = &d->shader,
+        .num_hooks = 1,
+        .sigmoid_params = d->sigmoid_params,
+        .disable_linear_scaling = !d->linear,
+        .upscaler = &d->sampleParams->filter,
+        .downscaler = &d->sampleParams->filter,
+        .antiringing_strength = d->sampleParams->antiring,
+        .lut_entries = d->sampleParams->lut_entries,
+        .polar_cutoff = d->sampleParams->cutoff
     };
+
     return pl_render_image(p->rr, &img, &out, &renderParams);
 }
 
-bool config_S(void *priv, struct pl_plane_data *data, const VSAPI *vsapi, SData* d)
+bool vspl_shader_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *vsapi, ShaderData* d)
 {
     struct priv *p = priv;
 
@@ -91,13 +100,13 @@ bool config_S(void *priv, struct pl_plane_data *data, const VSAPI *vsapi, SData*
 
     bool ok = true;
     for (int i = 0; i < 3; ++i) {
-        ok &= pl_tex_recreate(p->gpu, &p->tex_in[i], &(struct pl_tex_params) {
-                .w = data[i].width,
-                .h = data[i].height,
-                .format = fmt[i],
-                .sampleable = true,
-                .host_writable = true,
-        });
+        ok &= pl_tex_recreate(p->gpu, &p->tex_in[i], pl_tex_params(
+            .w = data[i].width,
+            .h = data[i].height,
+            .format = fmt[i],
+            .sampleable = true,
+            .host_writable = true,
+        ));
     }
 
     const struct pl_plane_data plane_data = {
@@ -110,13 +119,13 @@ bool config_S(void *priv, struct pl_plane_data *data, const VSAPI *vsapi, SData*
 
     const struct pl_fmt *out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
 
-    ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], &(struct pl_tex_params) {
-            .w = d->width,
-            .h = d->height,
-            .format = out,
-            .renderable = true,
-            .host_readable = true,
-    });
+    ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], pl_tex_params(
+        .w = d->width,
+        .h = d->height,
+        .format = out,
+        .renderable = true,
+        .host_readable = true,
+    ));
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed creating GPU textures!\n");
@@ -126,7 +135,7 @@ bool config_S(void *priv, struct pl_plane_data *data, const VSAPI *vsapi, SData*
     return true;
 }
 
-bool filter_S(void *priv, void *dst, struct pl_plane_data *src,  SData* d, int n, const VSAPI *vsapi)
+bool vspl_shader_filter(void *priv, void *dst, struct pl_plane_data *src,  ShaderData* d, int n, const VSAPI *vsapi)
 {
     struct priv *p = priv;
     // Upload planes
@@ -143,16 +152,16 @@ bool filter_S(void *priv, void *dst, struct pl_plane_data *src,  SData* d, int n
     }
 
     // Process plane
-    if (!do_plane_S(p, d, n, planes)) {
+    if (!vspl_shader_do_plane(p, d, n, planes)) {
         vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
 
     // Download planes
-    ok = pl_tex_download(p->gpu, &(struct pl_tex_transfer_params) {
-            .tex = p->tex_out[0],
-            .ptr = dst,
-    });
+    ok = pl_tex_download(p->gpu, pl_tex_transfer_params(
+        .tex = p->tex_out[0],
+        .ptr = dst,
+    ));
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed downloading data from the GPU!\n");
@@ -162,8 +171,8 @@ bool filter_S(void *priv, void *dst, struct pl_plane_data *src,  SData* d, int n
     return true;
 }
 
-static void VS_CC SInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
-    SData *d = (SData *) * instanceData;
+static void VS_CC VSPlaceboShaderInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
+    ShaderData *d = (ShaderData *) * instanceData;
     VSVideoInfo new_vi = (VSVideoInfo) * (d->vi);
     new_vi.width = d->width;
     new_vi.height = d->height;
@@ -172,8 +181,8 @@ static void VS_CC SInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node
     vsapi->setVideoInfo(&new_vi, 1, node);
 }
 
-static const VSFrameRef *VS_CC SGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
-    SData *d = (SData *) * instanceData;
+static const VSFrameRef *VS_CC VSPlaceboShaderGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
+    ShaderData *d = (ShaderData *) * instanceData;
 
     if (activationReason == arInitial) {
         vsapi->requestFrameFilter(n, d->node, frameCtx);
@@ -196,15 +205,15 @@ static const VSFrameRef *VS_CC SGetFrame(int n, int activationReason, void **ins
 
         VSFrameRef *dst = vsapi->newVideoFrame(dstfmt, d->width, d->height, frame, core);
 
-        struct pl_plane_data planes[4];
+        struct pl_plane_data planes[4] = {0};
         for (int j = 0; j < 3; ++j) {
             planes[j] = (struct pl_plane_data) {
-                    .type = PL_FMT_UNORM,
-                    .width = vsapi->getFrameWidth(frame, j),
-                    .height = vsapi->getFrameHeight(frame, j),
-                    .pixel_stride = 1 * 2,
-                    .row_stride =  vsapi->getStride(frame, j),
-                    .pixels =  vsapi->getWritePtr((VSFrameRef *) frame, j),
+                .type = PL_FMT_UNORM,
+                .width = vsapi->getFrameWidth(frame, j),
+                .height = vsapi->getFrameHeight(frame, j),
+                .pixel_stride = 2,
+                .row_stride =  vsapi->getStride(frame, j),
+                .pixels = vsapi->getReadPtr((VSFrameRef *) frame, j),
             };
 
             planes[j].component_size[0] = 16;
@@ -212,18 +221,24 @@ static const VSFrameRef *VS_CC SGetFrame(int n, int activationReason, void **ins
             planes[j].component_map[0] = j;
         }
 
-        void * packed_dst = malloc(d->width*d->height*2*3);
+        void * packed_dst = malloc(d->width * d->height * 2 * 3);
+
         pthread_mutex_lock(&d->lock);
-        if (config_S(d->vf, planes, vsapi, d)) {
-            filter_S(d->vf, packed_dst, planes, d, n, vsapi);
+
+        if (vspl_shader_reconfig(d->vf, planes, vsapi, d)) {
+            vspl_shader_filter(d->vf, packed_dst, planes, d, n, vsapi);
         }
+
         pthread_mutex_unlock(&d->lock);
 
-        struct p2p_buffer_param pack_params = {};
-        pack_params.width = d->width; pack_params.height = d->height;
-        pack_params.packing = p2p_bgr48_le;
-        pack_params.src[0] = packed_dst;
-        pack_params.src_stride[0] = d->width*3 * 2;
+        struct p2p_buffer_param pack_params = {
+            .width = d->width,
+            .height = d->height,
+            .packing = p2p_bgr48_le,
+            .src[0] = packed_dst,
+            .src_stride[0] = d->width * 2 * 3
+        };
+
         for (int k = 0; k < 3; ++k) {
             pack_params.dst[k] = vsapi->getWritePtr(dst, k);
             pack_params.dst_stride[k] = vsapi->getStride(dst, k);
@@ -239,27 +254,32 @@ static const VSFrameRef *VS_CC SGetFrame(int n, int activationReason, void **ins
     return 0;
 }
 
-static void VS_CC SFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
-    SData *d = (SData *)instanceData;
+static void VS_CC VSPlaceboShaderFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
+    ShaderData *d = (ShaderData *)instanceData;
     vsapi->freeNode(d->node);
     pl_mpv_user_shader_destroy(&d->shader);
     free((void *) d->sampleParams->filter.kernel);
     free(d->sampleParams);
     free(d->sigmoid_params);
-    uninit(d->vf);
+    VSPlaceboUninit(d->vf);
     pthread_mutex_destroy(&d->lock);
     free(d);
 }
 
-void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
-    SData d;
-    SData *data;
+void VS_CC VSPlaceboShaderCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
+    ShaderData d;
+    ShaderData *data;
     int err;
+    enum pl_log_level log_level;
 
     if (pthread_mutex_init(&d.lock, NULL) != 0) {
         vsapi->setError(out, "placebo.Shader: mutex init failed\n");
         return;
     }
+
+    log_level = vsapi->propGetInt(in, "log_level", 0, &err);
+    if (err)
+        log_level = PL_LOG_ERR;
 
     const char* sh = vsapi->propGetData(in, "shader", 0, &err);
     char *shader;
@@ -295,12 +315,12 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
 
-    d.vf = init();
+    d.vf = VSPlaceboInit(log_level);
     d.shader = pl_mpv_user_shader_parse(d.vf->gpu, shader, strlen(shader));
     free(shader);
 
     if (!d.shader) {
-        uninit(d.vf);
+        VSPlaceboUninit(d.vf);
         pl_mpv_user_shader_destroy(&d.shader);
         vsapi->setError(out, "placebo.Shader: Failed parsing shader!");
         vsapi->freeNode(d.node);
@@ -414,5 +434,5 @@ void VS_CC SCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, co
     data = malloc(sizeof(d));
     *data = d;
 
-    vsapi->createFilter(in, out, "Shader", SInit, SGetFrame, SFree, fmParallel, 0, data, core);
+    vsapi->createFilter(in, out, "Shader", VSPlaceboShaderInit, VSPlaceboShaderGetFrame, VSPlaceboShaderFree, fmParallel, 0, data, core);
 }
