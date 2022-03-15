@@ -43,7 +43,7 @@ typedef struct {
     enum pl_chroma_location chromaLocation;
 } TMData;
 
-bool vspl_tonemap_do_plane(TMData *tm_data, int n, struct pl_plane* planes,
+bool vspl_tonemap_do_planes(TMData *tm_data, struct pl_plane* planes,
                  const struct pl_color_repr src_repr, const struct pl_color_repr dst_repr)
 {
     struct priv *p = tm_data->vf;
@@ -125,7 +125,7 @@ bool vspl_tonemap_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *
     return true;
 }
 
-bool vspl_tonemap_filter(TMData *tm_data, void *dst, struct pl_plane_data *src, int n, const VSAPI *vsapi,
+bool vspl_tonemap_filter(TMData *tm_data, void *dst, struct pl_plane_data *src, const VSAPI *vsapi,
                const struct pl_color_repr src_repr, const struct pl_color_repr dst_repr)
 {
     struct priv *p = tm_data->vf;
@@ -144,7 +144,7 @@ bool vspl_tonemap_filter(TMData *tm_data, void *dst, struct pl_plane_data *src, 
     }
 
     // Process plane
-    if (!vspl_tonemap_do_plane(tm_data, n, planes, src_repr, dst_repr)) {
+    if (!vspl_tonemap_do_planes(tm_data, planes, src_repr, dst_repr)) {
         vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
@@ -383,7 +383,7 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
         pthread_mutex_lock(&tm_data->lock); // libplacebo isn’t thread-safe
 
         if (vspl_tonemap_reconfig(tm_data->vf, planes, vsapi)) {
-            vspl_tonemap_filter(tm_data, packed_dst, planes, n, vsapi, src_repr, dst_repr);
+            vspl_tonemap_filter(tm_data, packed_dst, planes, vsapi, src_repr, dst_repr);
         }
 
         pthread_mutex_unlock(&tm_data->lock);
