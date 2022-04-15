@@ -41,6 +41,8 @@ typedef struct {
     
     bool is_subsampled;
     enum pl_chroma_location chromaLocation;
+
+    bool use_dovi;
 } TMData;
 
 bool vspl_tonemap_do_planes(TMData *tm_data, struct pl_plane* planes,
@@ -306,61 +308,61 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
             struct pl_dovi_metadata *dovi_meta = NULL;
             uint8_t dovi_profile = 0;
 
-            if (tm_data->src_csp == CSP_DOVI) {
-                #ifdef HAVE_DOVI
-                    if (vsapi->propNumElements(props, "DolbyVisionRPU")) {
-                        uint8_t *doviRpu = (uint8_t *) vsapi->propGetData(props, "DolbyVisionRPU", 0, &err);
-                        size_t doviRpuSize = (size_t) vsapi->propGetDataSize(props, "DolbyVisionRPU", 0, &err);
+            #ifdef HAVE_DOVI
+                if (tm_data->use_dovi && vsapi->propNumElements(props, "DolbyVisionRPU")) {
+                    uint8_t *doviRpu = (uint8_t *) vsapi->propGetData(props, "DolbyVisionRPU", 0, &err);
+                    size_t doviRpuSize = (size_t) vsapi->propGetDataSize(props, "DolbyVisionRPU", 0, &err);
 
-                        if (doviRpu && doviRpuSize) {
-                            // fprintf(stderr, "Got Dolby Vision RPU, size %"PRIi64" at %"PRIxPTR"\n", doviRpuSize, (uintptr_t) doviRpu);
+                    if (doviRpu && doviRpuSize) {
+                        // fprintf(stderr, "Got Dolby Vision RPU, size %"PRIi64" at %"PRIxPTR"\n", doviRpuSize, (uintptr_t) doviRpu);
 
-                            DoviRpuOpaque *rpu = dovi_parse_unspec62_nalu(doviRpu, doviRpuSize);
-                            const DoviRpuDataHeader *header = dovi_rpu_get_header(rpu);
+                        DoviRpuOpaque *rpu = dovi_parse_unspec62_nalu(doviRpu, doviRpuSize);
+                        const DoviRpuDataHeader *header = dovi_rpu_get_header(rpu);
 
-                            if (!header) {
-                                fprintf(stderr, "Failed parsing RPU: %s\n", dovi_rpu_get_error(rpu));
-                            } else {
-                                dovi_profile = header->guessed_profile;
+                        if (!header) {
+                            fprintf(stderr, "Failed parsing RPU: %s\n", dovi_rpu_get_error(rpu));
+                        } else {
+                            dovi_profile = header->guessed_profile;
 
-                                dovi_meta = create_dovi_meta(rpu, header);
-                                dovi_rpu_free_header(header);
-                            }
+                            dovi_meta = create_dovi_meta(rpu, header);
+                            dovi_rpu_free_header(header);
+                        }
 
-                            // Only set if we're certain the RPU exists
+                        // Profile 5
+                        if (tm_data->src_csp == CSP_DOVI) {
                             src_repr.sys = PL_COLOR_SYSTEM_DOLBYVISION;
                             src_repr.dovi = dovi_meta;
 
                             if (dovi_profile == 5) {
                                 dst_repr.levels = PL_COLOR_LEVELS_FULL;
                             }
-
-                            // Update mastering display from RPU
-                            if (header->vdr_dm_metadata_present_flag) {
-                                const DoviVdrDmData *vdr_dm_data = dovi_rpu_get_vdr_dm_data(rpu);
-
-                                src_pl_csp->hdr.min_luma =
-                                    pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, vdr_dm_data->source_min_pq / 4095.0f);
-                                src_pl_csp->hdr.max_luma =
-                                    pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, vdr_dm_data->source_max_pq / 4095.0f);
-
-                                if (vdr_dm_data->dm_data.level6) {
-                                    const DoviExtMetadataBlockLevel6 *meta = vdr_dm_data->dm_data.level6;
-                                    
-                                    if (!maxCll || !maxFall) {
-                                        src_pl_csp->hdr.max_cll = meta->max_content_light_level;
-                                        src_pl_csp->hdr.max_fall = meta->max_frame_average_light_level;
-                                    }
-                                }
-                                
-                                dovi_rpu_free_vdr_dm_data(vdr_dm_data);
-                            }
-                            
-                            dovi_rpu_free(rpu);
                         }
+
+                        // Update mastering display from RPU
+                        if (header->vdr_dm_metadata_present_flag) {
+                            const DoviVdrDmData *vdr_dm_data = dovi_rpu_get_vdr_dm_data(rpu);
+
+                            src_pl_csp->hdr.min_luma =
+                                pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, vdr_dm_data->source_min_pq / 4095.0f);
+                            src_pl_csp->hdr.max_luma =
+                                pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, vdr_dm_data->source_max_pq / 4095.0f);
+
+                            if (vdr_dm_data->dm_data.level6) {
+                                const DoviExtMetadataBlockLevel6 *meta = vdr_dm_data->dm_data.level6;
+                                
+                                if (!maxCll || !maxFall) {
+                                    src_pl_csp->hdr.max_cll = meta->max_content_light_level;
+                                    src_pl_csp->hdr.max_fall = meta->max_frame_average_light_level;
+                                }
+                            }
+
+                            dovi_rpu_free_vdr_dm_data(vdr_dm_data);
+                        }
+                        
+                        dovi_rpu_free(rpu);
                     }
-                #endif
-            }
+                }
+            #endif
         #endif
 
         struct pl_plane_data planes[3] = {};
@@ -563,6 +565,10 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
     if (err)
         peak_detection = 1;
 
+    bool use_dovi = vsapi->propGetInt(in, "use_dovi", 0, &err);
+    if (err)
+        use_dovi = src_csp == CSP_DOVI;
+
     struct pl_render_params *renderParams = malloc(sizeof(struct pl_render_params));
     *renderParams = pl_render_default_params;
 
@@ -581,6 +587,7 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
     d.original_src_max = src_max;
     d.original_src_min = src_min;
     d.is_subsampled = d.vi->format->subSamplingW || d.vi->format->subSamplingH;
+    d.use_dovi = use_dovi;
 
     tm_data = malloc(sizeof(d));
     *tm_data = d;
