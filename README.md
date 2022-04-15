@@ -33,8 +33,9 @@ For example, to map from [BT.2020, PQ] (HDR) to traditional [BT.709, BT.1886] (S
 - ``smoothing_period, scene_threshold_low, scene_threshold_high``: peak detection params. See [here](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L85).
 - ``gamut_mode, tone_mapping_function, tone_mapping_mode, tone_mapping_param, tone_mapping_crosstalk``:
  [Color mapping params](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L237).
+- ``use_dovi``: Whether to use the Dolby Vision RPU for ST2086 metadata. Defaults to true when tonemapping from Dolby Vision.
 
-For Dolby Vision support, git versions of FFmpeg and ffms2 are required, as well as libplacebo v4.157.0.185 or newer.  
+For Dolby Vision support, FFmpeg 5.0 minimum and git ffms2 are required, as well as libplacebo v4.157.0.185 or newer.  
 Currently, [libdovi](https://github.com/quietvoid/dovi_tool/tree/main/dolby_vision) is required.
 
 &nbsp;
