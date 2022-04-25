@@ -38,6 +38,9 @@ For example, to map from [BT.2020, PQ] (HDR) to traditional [BT.709, BT.1886] (S
 For Dolby Vision support, FFmpeg 5.0 minimum and git ffms2 are required, as well as libplacebo v4.157.0.185 or newer.  
 Currently, [libdovi](https://github.com/quietvoid/dovi_tool/tree/main/dolby_vision) is required.
 
+For Windows, `libdovi` is available as a [precompiled DLL](https://github.com/quietvoid/dovi_tool/releases/tag/libdovi-1.6.3).  
+The library must be placed in the same directory as `vs-placebo` and be named `dovi.dll`.
+
 &nbsp;
 
 #### ``placebo.Resample(clip clip[, int width, int height, string filter = "ewa_lanczos", float radius, float clamp, float taper, float blur, float param1, float param2, float sx = 0.0, float sy = 0.0, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001, bool sigmoidize = 1, bool linearize = 1, float sigmoid_center = 0.75, float sigmoid_slope = 6.5, int trc = 1])``
@@ -112,5 +115,5 @@ Otherwise it's as simple as `DESTDIR= ninja -C build install`.
 &nbsp;
 
 Building on Linux for Windows:  
-Some experimental build system based on `mpv-winbuild-cmake`: https://github.com/quietvoid/mpv-winbuild-cmake/commits/vs-placebo-winbuild  
-YMMV.
+Some experimental build system based on `mpv-winbuild-cmake`: https://github.com/quietvoid/mpv-winbuild-cmake/commits/vs-placebo-libdovi  
+Suggested to use on Arch Linux. YMMV.
