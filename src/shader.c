@@ -283,10 +283,10 @@ void VS_CC VSPlaceboShaderCreate(const VSMap *in, VSMap *out, void *userData, VS
 
     const char* sh = vsapi->propGetData(in, "shader", 0, &err);
     char *shader;
-    long fsize;
+    size_t fsize;
 
     if (!err) {
-        FILE *fl = fopen(sh, "r");
+        FILE *fl = fopen(sh, "rb");
         if (fl == NULL) {
             perror("Failed: ");
             vsapi->setError(out, "placebo.Shader: Failed reading shader file!");
@@ -294,11 +294,13 @@ void VS_CC VSPlaceboShaderCreate(const VSMap *in, VSMap *out, void *userData, VS
         }
 
         fseek(fl, 0, SEEK_END);
-        fsize = ftell(fl);
-        fseek(fl, 0, SEEK_SET);
+        fsize = (size_t) ftell(fl);
+        rewind(fl);
+
         shader = malloc(fsize + 1);
         fread(shader, 1, fsize, fl);
         fclose(fl);
+
         shader[fsize] = '\0';
     } else {
         const char* shader_s = vsapi->propGetData(in, "shader_s", 0, &err);
