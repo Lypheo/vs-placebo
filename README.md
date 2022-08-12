@@ -38,7 +38,7 @@ For example, to map from [BT.2020, PQ] (HDR) to traditional [BT.709, BT.1886] (S
 For Dolby Vision support, FFmpeg 5.0 minimum and git ffms2 are required, as well as libplacebo v4.157.0.185 or newer.  
 Currently, [libdovi](https://github.com/quietvoid/dovi_tool/tree/main/dolby_vision) is required.
 
-For Windows, `libdovi` is available as a [precompiled DLL](https://github.com/quietvoid/dovi_tool/releases/tag/libdovi-1.6.3).  
+For Windows, `libdovi` is available as a [precompiled DLL](https://github.com/quietvoid/dovi_tool/releases/tag/libdovi-1.6.7).  
 The library must be placed in the same directory as `vs-placebo` and be named `dovi.dll`.
 
 &nbsp;
