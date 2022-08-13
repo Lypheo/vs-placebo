@@ -14,25 +14,25 @@
 typedef struct {
     VSNodeRef *node;
     const VSVideoInfo *vi;
-    void * vf;
+    void *vf;
     int width;
     int height;
     float src_x;
     float src_y;
     struct pl_sample_filter_params *sampleParams;
-    struct pl_shader_obj *lut;
-    struct pl_sigmoid_params * sigmoid_params;
+    pl_shader_obj lut;
+    struct pl_sigmoid_params *sigmoid_params;
     enum pl_color_transfer trc;
     bool linear;
     pthread_mutex_t lock;
 } ResampleData;
 
-bool vspl_resample_do_plane(struct priv *p, void* data, int w, int h, const VSAPI *vsapi, float sx, float sy)
+bool vspl_resample_do_plane(struct priv *p, void *data, int w, int h, const VSAPI *vsapi, float sx, float sy)
 {
-    ResampleData* d = (ResampleData*) data;
+    ResampleData *d = (ResampleData*) data;
     pl_shader sh = pl_dispatch_begin(p->dp);
-    const struct pl_tex *sample_fbo = NULL;
-    const struct pl_tex *sep_fbo = NULL;
+    pl_tex sample_fbo = NULL;
+    pl_tex sep_fbo = NULL;
 
     struct pl_sample_filter_params sampleFilterParams = *d->sampleParams;
     sampleFilterParams.lut = &d->lut;
@@ -95,7 +95,7 @@ bool vspl_resample_do_plane(struct priv *p, void* data, int w, int h, const VSAP
         if (!pl_shader_sample_polar(sh, src, &sampleFilterParams))
             vsapi->logMessage(mtCritical, "Failed dispatching scaler...\n");
     } else {
-        struct pl_shader *tsh = pl_dispatch_begin(p->dp);
+        pl_shader tsh = pl_dispatch_begin(p->dp);
 
         if (!pl_shader_sample_ortho(tsh, PL_SEP_VERT, src, &sampleFilterParams)) {
             vsapi->logMessage(mtCritical, "Failed dispatching vertical pass!\n");
@@ -167,7 +167,7 @@ bool vspl_resample_reconfig(void *priv, struct pl_plane_data *data, int w, int h
 {
     struct priv *p = priv;
 
-    const struct pl_fmt *fmt = pl_plane_find_fmt(p->gpu, NULL, data);
+    const pl_fmt fmt = pl_plane_find_fmt(p->gpu, NULL, data);
     if (!fmt) {
         vsapi->logMessage(mtCritical, "Failed configuring filter: no good texture format!\n");
         return false;
@@ -199,7 +199,7 @@ bool vspl_resample_reconfig(void *priv, struct pl_plane_data *data, int w, int h
     return true;
 }
 
-bool vspl_resample_filter(void *priv, VSFrameRef *dst, struct pl_plane_data *src, void* d, int w, int h, float sx, float sy, const VSAPI *vsapi, int planeIdx)
+bool vspl_resample_filter(void *priv, VSFrameRef *dst, struct pl_plane_data *src, void *d, int w, int h, float sx, float sy, const VSAPI *vsapi, int planeIdx)
 {
     struct priv *p = priv;
 
@@ -243,15 +243,15 @@ bool vspl_resample_filter(void *priv, VSFrameRef *dst, struct pl_plane_data *src
 }
 
 static void VS_CC VSPlaceboResampleInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
-    ResampleData *d = (ResampleData *) * instanceData;
-    VSVideoInfo new_vi = (VSVideoInfo) * (d->vi);
+    ResampleData *d = (ResampleData *) *instanceData;
+    VSVideoInfo new_vi = (VSVideoInfo) *(d->vi);
     new_vi.width = d->width;
     new_vi.height = d->height;
     vsapi->setVideoInfo(&new_vi, 1, node);
 }
 
 static const VSFrameRef *VS_CC VSPlaceboResampleGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
-    ResampleData *d = (ResampleData *) * instanceData;
+    ResampleData *d = (ResampleData *) *instanceData;
 
     if (activationReason == arInitial) {
         vsapi->requestFrameFilter(n, d->node, frameCtx);
@@ -382,7 +382,7 @@ void VS_CC VSPlaceboResampleCreate(const VSMap *in, VSMap *out, void *useResampl
     sampleFilterParams->cutoff = vsapi->propGetFloat(in, "cutoff", 0, &err);
     sampleFilterParams->antiring = vsapi->propGetFloat(in, "antiring", 0, &err);
 
-    const char * filter = vsapi->propGetData(in, "filter", 0, &err);
+    const char *filter = vsapi->propGetData(in, "filter", 0, &err);
 
     if (!filter) filter = "ewa_lanczos";
 #define FILTER_ELIF(name) else if (strcmp(filter, #name) == 0) sampleFilterParams->filter = pl_filter_##name;
