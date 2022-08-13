@@ -35,9 +35,9 @@ struct priv {
     pl_dispatch dp;
     pl_shader_obj dither_state;
 
-    struct pl_renderer *rr;
-    const struct pl_tex *tex_in[MAX_PLANES];
-    const struct pl_tex *tex_out[MAX_PLANES];
+    pl_renderer rr;
+    pl_tex tex_in[MAX_PLANES];
+    pl_tex tex_out[MAX_PLANES];
 };
 
 void *VSPlaceboInit(enum pl_log_level log_level);

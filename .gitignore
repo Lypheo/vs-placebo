@@ -5,3 +5,4 @@ cmake-build-release/
 cmake-build-debug/
 vapoursynth
 vapoursynth/
+.vscode

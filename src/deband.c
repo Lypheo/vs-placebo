@@ -11,7 +11,7 @@
 typedef struct {
     VSNodeRef *node;
     const VSVideoInfo *vi;
-    void * vf;
+    void *vf;
     unsigned int planes;
     int dither;
     struct pl_render_params *render_params;
@@ -63,7 +63,7 @@ bool vspl_deband_reconfig(DebandData *dbd_data, VSFrameRef *dst, const VSAPI *vs
     struct priv *p = dbd_data->vf;
 
     bool ok = true;
-    const struct pl_fmt *fmt = pl_plane_find_fmt(p->gpu, NULL, data);
+    const pl_fmt fmt = pl_plane_find_fmt(p->gpu, NULL, data);
 
     if (!fmt) {
         vsapi->logMessage(mtCritical, "placebo.Deband: Failed configuring filter: no good texture format!");
@@ -140,13 +140,13 @@ bool vspl_deband_download_planes(DebandData *dbd_data, const VSAPI *vsapi, VSFra
 }
 
 static void VS_CC VSPlaceboDebandInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
-    DebandData *d = (DebandData *) * instanceData;
-    VSVideoInfo new_vi = (VSVideoInfo) * (d->vi);
+    DebandData *d = (DebandData *) *instanceData;
+    VSVideoInfo new_vi = (VSVideoInfo) *(d->vi);
     vsapi->setVideoInfo(&new_vi, 1, node);
 }
 
 static const VSFrameRef *VS_CC VSPlaceboDebandGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
-    DebandData *dbd_data = (DebandData *) * instanceData;
+    DebandData *dbd_data = (DebandData *) *instanceData;
 
     if (activationReason == arInitial) {
         vsapi->requestFrameFilter(n, dbd_data->node, frameCtx);

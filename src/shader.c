@@ -18,22 +18,22 @@ typedef  struct {
     int width;
     int height;
     const VSVideoInfo *vi;
-    struct priv * vf;
-    const struct pl_hook* shader;
+    struct priv *vf;
+    const struct pl_hook *shader;
     enum pl_color_system matrix;
     enum pl_color_levels range;
     enum pl_chroma_location chromaLocation;
     struct pl_sample_filter_params *sampleParams;
-    struct pl_sigmoid_params * sigmoid_params;
+    struct pl_sigmoid_params *sigmoid_params;
     enum pl_color_transfer trc;
     bool linear;
     pthread_mutex_t lock;
 } ShaderData;
 
 
-bool vspl_shader_do_plane(struct priv *p, void* data, int n, struct pl_plane* planes)
+bool vspl_shader_do_plane(struct priv *p, void *data, int n, struct pl_plane *planes)
 {
-    ShaderData* d = (ShaderData*) data;
+    ShaderData *d = (ShaderData*) data;
 
     const struct pl_color_repr crpr = {
         .bits = {
@@ -85,11 +85,11 @@ bool vspl_shader_do_plane(struct priv *p, void* data, int n, struct pl_plane* pl
     return pl_render_image(p->rr, &img, &out, &renderParams);
 }
 
-bool vspl_shader_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *vsapi, ShaderData* d)
+bool vspl_shader_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *vsapi, ShaderData *d)
 {
     struct priv *p = priv;
 
-    const struct pl_fmt* fmt[3];
+    pl_fmt fmt[3];
     for (int j = 0; j < 3; ++j) {
         fmt[j] = pl_plane_find_fmt(p->gpu, NULL, &data[j]);
         if (!fmt[j]) {
@@ -117,7 +117,7 @@ bool vspl_shader_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *v
         .pixel_stride = 6
     };
 
-    const struct pl_fmt *out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
+    const pl_fmt out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
 
     ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], pl_tex_params(
         .w = d->width,
@@ -135,7 +135,7 @@ bool vspl_shader_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *v
     return true;
 }
 
-bool vspl_shader_filter(void *priv, void *dst, struct pl_plane_data *src,  ShaderData* d, int n, const VSAPI *vsapi)
+bool vspl_shader_filter(void *priv, void *dst, struct pl_plane_data *src,  ShaderData *d, int n, const VSAPI *vsapi)
 {
     struct priv *p = priv;
     // Upload planes
@@ -172,8 +172,8 @@ bool vspl_shader_filter(void *priv, void *dst, struct pl_plane_data *src,  Shade
 }
 
 static void VS_CC VSPlaceboShaderInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
-    ShaderData *d = (ShaderData *) * instanceData;
-    VSVideoInfo new_vi = (VSVideoInfo) * (d->vi);
+    ShaderData *d = (ShaderData *) *instanceData;
+    VSVideoInfo new_vi = (VSVideoInfo) *(d->vi);
     new_vi.width = d->width;
     new_vi.height = d->height;
     VSFormat f = *new_vi.format;
@@ -182,7 +182,7 @@ static void VS_CC VSPlaceboShaderInit(VSMap *in, VSMap *out, void **instanceData
 }
 
 static const VSFrameRef *VS_CC VSPlaceboShaderGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
-    ShaderData *d = (ShaderData *) * instanceData;
+    ShaderData *d = (ShaderData *) *instanceData;
 
     if (activationReason == arInitial) {
         vsapi->requestFrameFilter(n, d->node, frameCtx);
@@ -221,7 +221,7 @@ static const VSFrameRef *VS_CC VSPlaceboShaderGetFrame(int n, int activationReas
             planes[j].component_map[0] = j;
         }
 
-        void * packed_dst = malloc(d->width * d->height * 2 * 3);
+        void *packed_dst = malloc(d->width * d->height * 2 * 3);
 
         pthread_mutex_lock(&d->lock);
 
@@ -281,7 +281,7 @@ void VS_CC VSPlaceboShaderCreate(const VSMap *in, VSMap *out, void *userData, VS
     if (err)
         log_level = PL_LOG_ERR;
 
-    const char* sh = vsapi->propGetData(in, "shader", 0, &err);
+    const char *sh = vsapi->propGetData(in, "shader", 0, &err);
     char *shader;
     size_t fsize;
 
@@ -303,7 +303,7 @@ void VS_CC VSPlaceboShaderCreate(const VSMap *in, VSMap *out, void *userData, VS
 
         shader[fsize] = '\0';
     } else {
-        const char* shader_s = vsapi->propGetData(in, "shader_s", 0, &err);
+        const char *shader_s = vsapi->propGetData(in, "shader_s", 0, &err);
 
         if (err) {
             vsapi->setError(out, "placebo.Shader: Either shader or shader_s must be specified!");
@@ -379,7 +379,7 @@ void VS_CC VSPlaceboShaderCreate(const VSMap *in, VSMap *out, void *userData, VS
     sampleFilterParams->cutoff = vsapi->propGetFloat(in, "cutoff", 0, &err);
     sampleFilterParams->antiring = vsapi->propGetFloat(in, "antiring", 0, &err);
 
-    const char * filter = vsapi->propGetData(in, "filter", 0, &err);
+    const char *filter = vsapi->propGetData(in, "filter", 0, &err);
 
     if (!filter) filter = "ewa_lanczos";
 #define FILTER_ELIF(name) else if (strcmp(filter, #name) == 0) sampleFilterParams->filter = pl_filter_##name;

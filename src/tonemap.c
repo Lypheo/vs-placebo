@@ -26,7 +26,7 @@ enum supported_colorspace {
 typedef struct {
     VSNodeRef *node;
     const VSVideoInfo *vi;
-    struct priv * vf;
+    struct priv *vf;
 
     struct pl_render_params *renderParams;
 
@@ -45,7 +45,7 @@ typedef struct {
     bool use_dovi;
 } TMData;
 
-bool vspl_tonemap_do_planes(TMData *tm_data, struct pl_plane* planes,
+bool vspl_tonemap_do_planes(TMData *tm_data, struct pl_plane *planes,
                  const struct pl_color_repr src_repr, const struct pl_color_repr dst_repr)
 {
     struct priv *p = tm_data->vf;
@@ -79,7 +79,7 @@ bool vspl_tonemap_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *
 {
     struct priv *p = priv;
 
-    const struct pl_fmt *fmt = pl_plane_find_fmt(p->gpu, NULL, &data[0]);
+    const pl_fmt fmt = pl_plane_find_fmt(p->gpu, NULL, &data[0]);
     if (!fmt) {
         vsapi->logMessage(mtCritical, "Failed configuring filter: no good texture format!\n");
         return false;
@@ -107,7 +107,7 @@ bool vspl_tonemap_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *
         .pixel_stride = 6
     };
 
-    const struct pl_fmt *out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
+    const pl_fmt out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
 
     ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], pl_tex_params(
         .w = data->width,
@@ -169,8 +169,8 @@ bool vspl_tonemap_filter(TMData *tm_data, void *dst, struct pl_plane_data *src, 
 }
 
 static void VS_CC VSPlaceboTMInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
-    TMData *d = (TMData *) * instanceData;
-    VSVideoInfo new_vi = (VSVideoInfo) * (d->vi);
+    TMData *d = (TMData *) *instanceData;
+    VSVideoInfo new_vi = (VSVideoInfo) *(d->vi);
     const VSFormat f = *new_vi.format;
 
     new_vi.format = vsapi->registerFormat(f.colorFamily, f.sampleType, f.bitsPerSample, 0, 0, core);
@@ -181,7 +181,7 @@ static void VS_CC VSPlaceboTMInit(VSMap *in, VSMap *out, void **instanceData, VS
 static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, void **instanceData, void **frameData,
                                           VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi)
 {
-    TMData *tm_data = (TMData *) * instanceData;
+    TMData *tm_data = (TMData *) *instanceData;
 
     if (activationReason == arInitial) {
         vsapi->requestFrameFilter(n, tm_data->node, frameCtx);
