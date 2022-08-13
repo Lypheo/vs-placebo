@@ -6,7 +6,7 @@ project('vs-placebo', ['c', 'cpp'],
 
 win32 = host_machine.system() == 'windows' or host_machine.system() == 'cgywin'
 
-placebo = dependency('libplacebo', required: true, static: win32)
+placebo = dependency('libplacebo', required: true, version: '>=4.208.0', static: win32)
 vapoursynth_dep = dependency('vapoursynth', static: win32).partial_dependency(includes: true, compile_args: true)
 
 if win32
@@ -36,6 +36,6 @@ shared_module('vs_placebo', sources,
   dependencies: [placebo, vapoursynth_dep, dovi],
   link_with: [p2p],
   name_prefix: 'lib',
-  install_dir : join_paths(vapoursynth_dep.get_pkgconfig_variable('libdir'), 'vapoursynth'),
+  install_dir : join_paths(vapoursynth_dep.get_variable(pkgconfig: 'libdir'), 'vapoursynth'),
   install: true
 )
