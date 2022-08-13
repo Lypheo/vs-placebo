@@ -117,7 +117,7 @@ bool vspl_shader_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *v
         .pixel_stride = 6
     };
 
-    const pl_fmt out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
+    pl_fmt out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
 
     ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], pl_tex_params(
         .w = d->width,

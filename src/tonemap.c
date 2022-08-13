@@ -79,7 +79,7 @@ bool vspl_tonemap_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *
 {
     struct priv *p = priv;
 
-    const pl_fmt fmt = pl_plane_find_fmt(p->gpu, NULL, &data[0]);
+    pl_fmt fmt = pl_plane_find_fmt(p->gpu, NULL, &data[0]);
     if (!fmt) {
         vsapi->logMessage(mtCritical, "Failed configuring filter: no good texture format!\n");
         return false;
@@ -107,7 +107,7 @@ bool vspl_tonemap_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *
         .pixel_stride = 6
     };
 
-    const pl_fmt out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
+    pl_fmt out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
 
     ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], pl_tex_params(
         .w = data->width,

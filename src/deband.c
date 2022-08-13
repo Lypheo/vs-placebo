@@ -63,7 +63,7 @@ bool vspl_deband_reconfig(DebandData *dbd_data, VSFrameRef *dst, const VSAPI *vs
     struct priv *p = dbd_data->vf;
 
     bool ok = true;
-    const pl_fmt fmt = pl_plane_find_fmt(p->gpu, NULL, data);
+    pl_fmt fmt = pl_plane_find_fmt(p->gpu, NULL, data);
 
     if (!fmt) {
         vsapi->logMessage(mtCritical, "placebo.Deband: Failed configuring filter: no good texture format!");

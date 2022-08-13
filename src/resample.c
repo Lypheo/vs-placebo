@@ -167,7 +167,7 @@ bool vspl_resample_reconfig(void *priv, struct pl_plane_data *data, int w, int h
 {
     struct priv *p = priv;
 
-    const pl_fmt fmt = pl_plane_find_fmt(p->gpu, NULL, data);
+    pl_fmt fmt = pl_plane_find_fmt(p->gpu, NULL, data);
     if (!fmt) {
         vsapi->logMessage(mtCritical, "Failed configuring filter: no good texture format!\n");
         return false;
