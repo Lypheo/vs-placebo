@@ -188,6 +188,16 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
     } else if (activationReason == arAllFramesReady) {
         const VSFrameRef *frame = vsapi->getFrameFilter(n, tm_data->node, frameCtx);
 
+        int err;
+        const VSMap *props = vsapi->getFramePropsRO(frame);
+
+        // Validate props for Dolby Vision mapping
+        if (tm_data->src_csp == CSP_DOVI && vsapi->propNumElements(props, "DolbyVisionRPU") == -1) {
+            vsapi->setFilterError("placebo.Tonemap: Clip is missing `DolbyVisionRPU` prop for Dolby Vision mapping!", frameCtx);
+
+            return NULL;
+        }
+
         int w = vsapi->getFrameWidth(frame, 0);    
         int h = vsapi->getFrameHeight(frame, 0);
 
@@ -222,9 +232,6 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
             .levels = PL_COLOR_LEVELS_FULL,
             .alpha = PL_ALPHA_PREMULTIPLIED,
         };
-
-        int err;
-        const VSMap *props = vsapi->getFramePropsRO(frame);
 
         int64_t props_levels = vsapi->propGetInt(props, "_ColorRange", 0, &err);
 
@@ -314,8 +321,6 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
                     size_t doviRpuSize = (size_t) vsapi->propGetDataSize(props, "DolbyVisionRPU", 0, &err);
 
                     if (doviRpu && doviRpuSize) {
-                        // fprintf(stderr, "Got Dolby Vision RPU, size %"PRIi64" at %"PRIxPTR"\n", doviRpuSize, (uintptr_t) doviRpu);
-
                         DoviRpuOpaque *rpu = dovi_parse_unspec62_nalu(doviRpu, doviRpuSize);
                         const DoviRpuDataHeader *header = dovi_rpu_get_header(rpu);
 
