@@ -349,11 +349,12 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
                         if (header->vdr_dm_metadata_present_flag) {
                             const DoviVdrDmData *vdr_dm_data = dovi_rpu_get_vdr_dm_data(rpu);
 
-                            // Should avoid changing the black point when mapping profile 7/8 to PQ
-                            // As the source image already has a specific black point
+                            // Should avoid changing the source black point when mapping to PQ
+                            // As the source image already has a specific black point,
+                            // and the RPU isn't necessarily ground truth on the actual coded values
+                            //
                             // Set target black point to the same as source
-                            // TODO: Compare the intended black point on a Dolby Vision compatible setup
-                            if (dovi_profile >= 7 && tm_data->src_csp == CSP_DOVI && tm_data->dst_csp == CSP_HDR10) {
+                            if (tm_data->src_csp == CSP_DOVI && tm_data->dst_csp == CSP_HDR10) {
                                 tm_data->dst_pl_csp->hdr.min_luma = src_pl_csp->hdr.min_luma;
                             } else {
                                 src_pl_csp->hdr.min_luma =
