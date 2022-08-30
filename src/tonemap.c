@@ -31,6 +31,8 @@ typedef struct {
     struct pl_render_params *renderParams;
 
     enum supported_colorspace src_csp;
+    enum supported_colorspace dst_csp;
+
     struct pl_color_space *src_pl_csp;
     struct pl_color_space *dst_pl_csp;
 
@@ -333,7 +335,7 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
                             dovi_rpu_free_header(header);
                         }
 
-                        // Profile 5
+                        // Profile 5, 7 or 8 mapping
                         if (tm_data->src_csp == CSP_DOVI) {
                             src_repr.sys = PL_COLOR_SYSTEM_DOLBYVISION;
                             src_repr.dovi = dovi_meta;
@@ -347,8 +349,17 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
                         if (header->vdr_dm_metadata_present_flag) {
                             const DoviVdrDmData *vdr_dm_data = dovi_rpu_get_vdr_dm_data(rpu);
 
-                            src_pl_csp->hdr.min_luma =
-                                pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, vdr_dm_data->source_min_pq / 4095.0f);
+                            // Should avoid changing the black point when mapping profile 7/8 to PQ
+                            // As the source image already has a specific black point
+                            // Set target black point to the same as source
+                            // TODO: Compare the intended black point on a Dolby Vision compatible setup
+                            if (dovi_profile >= 7 && tm_data->src_csp == CSP_DOVI && tm_data->dst_csp == CSP_HDR10) {
+                                tm_data->dst_pl_csp->hdr.min_luma = src_pl_csp->hdr.min_luma;
+                            } else {
+                                src_pl_csp->hdr.min_luma =
+                                    pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, vdr_dm_data->source_min_pq / 4095.0f);
+                            }
+
                             src_pl_csp->hdr.max_luma =
                                 pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, vdr_dm_data->source_max_pq / 4095.0f);
 
@@ -589,6 +600,7 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
     d.src_pl_csp = src_pl_csp;
     d.dst_pl_csp = dst_pl_csp;
     d.src_csp = src_csp;
+    d.dst_csp = dst_csp;
     d.original_src_max = src_max;
     d.original_src_min = src_min;
     d.is_subsampled = d.vi->format->subSamplingW || d.vi->format->subSamplingH;
