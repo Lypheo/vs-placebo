@@ -18,7 +18,7 @@ see the libplacebo header files.
 
 &nbsp;
 
-#### ``placebo.Tonemap(clip clip[, int src_csp, int dst_csp, float src_max, float src_min, float dst_max, float dst_min, int dynamic_peak_detection, float smoothing_period, float scene_threshold_low, scene_threshold_high, int intent, int gamut_mode, int tone_mapping_function, int tone_mapping_mode, float tone_mapping_param, float tone_mapping_crosstalk, bool use_dovi])``
+#### ``placebo.Tonemap(clip clip[, int src_csp, int dst_csp, int dst_prim, float src_max, float src_min, float dst_max, float dst_min, int dynamic_peak_detection, float smoothing_period, float scene_threshold_low, scene_threshold_high, int intent, int gamut_mode, int tone_mapping_function, int tone_mapping_mode, float tone_mapping_param, float tone_mapping_crosstalk, bool use_dovi])``
 
 Performs color mapping (which includes tonemapping from HDR to SDR, but can do a lot more).  
 Expects RGB48 or YUVxxxP16 input.  
@@ -27,6 +27,7 @@ Outputs RGB48 or YUV444P16, depending on input color family.
 - ``src_csp, dst_csp``:  
 See the `supported_colorspace` in `tonemap.c` for the valid src/dst colorspaces.  
 For example, to map from [BT.2020, PQ] (HDR) to traditional [BT.709, BT.1886] (SDR), pass ``src_csp=1, dst_csp=0``.
+- ``dst_prim``: Target color primaries. See [pl_color_primaries](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/colorspace.h#L193) for valid values.
 - ``src_max, src_min, dst_max, dst_min``: Source/target display levels, in nits (cd/m^2). Source can be derived from props if available.
 
 - ``dynamic_peak_detection``: enables computation of signal stats to optimize HDR tonemapping quality. Enabled by default.

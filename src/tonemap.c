@@ -576,6 +576,10 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
     dst_pl_csp->hdr.max_luma = vsapi->propGetFloat(in, "dst_max", 0, &err);
     dst_pl_csp->hdr.min_luma = vsapi->propGetFloat(in, "dst_min", 0, &err);
 
+    int64_t dst_prim = vsapi->propGetInt(in, "dst_prim", 0, &err);
+    if (!err)
+        dst_pl_csp->primaries = dst_prim;
+
     pl_color_space_infer(dst_pl_csp);
 
     int peak_detection = vsapi->propGetInt(in, "dynamic_peak_detection", 0, &err);

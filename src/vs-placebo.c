@@ -89,6 +89,7 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegiste
 
     registerFunc("Tonemap", "clip:clip;"
                             "src_csp:int:opt;dst_csp:int:opt;"
+                            "dst_prim:int:opt;"
                             "src_max:float:opt;src_min:float:opt;"
                             "dst_max:float:opt;dst_min:float:opt;"
                             "dynamic_peak_detection:int:opt;smoothing_period:float:opt;"
