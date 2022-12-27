@@ -97,7 +97,9 @@ bool vspl_resample_do_plane(struct priv *p, void *data, int w, int h, const VSAP
     } else {
         pl_shader tsh = pl_dispatch_begin(p->dp);
 
-        if (!pl_shader_sample_ortho(tsh, PL_SEP_VERT, src, &sampleFilterParams)) {
+        src->rect.x0 = 0;
+        src->rect.x1 = src->new_w;
+        if (!pl_shader_sample_ortho2(tsh, src, &sampleFilterParams)) {
             vsapi->logMessage(mtCritical, "Failed dispatching vertical pass!\n");
             pl_dispatch_abort(p->dp, &tsh);
         }
@@ -123,7 +125,9 @@ bool vspl_resample_do_plane(struct priv *p, void *data, int w, int h, const VSAP
             return false;
         }
 
-        if (!pl_shader_sample_ortho(sh, PL_SEP_HORIZ, &src2, &sampleFilterParams))
+        src->rect.y0 = 0;
+        src->rect.y1 = src->new_h;
+        if (!pl_shader_sample_ortho2(sh, &src2, &sampleFilterParams))
             vsapi->logMessage(mtCritical, "Failed dispatching horizontal pass! \n");
     }
 
