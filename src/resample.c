@@ -125,8 +125,8 @@ bool vspl_resample_do_plane(struct priv *p, void *data, int w, int h, const VSAP
             return false;
         }
 
-        src->rect.y0 = 0;
-        src->rect.y1 = src->new_h;
+        src2.rect.y0 = 0;
+        src2.rect.y1 = src2.new_h;
         if (!pl_shader_sample_ortho2(sh, &src2, &sampleFilterParams))
             vsapi->logMessage(mtCritical, "Failed dispatching horizontal pass! \n");
     }
