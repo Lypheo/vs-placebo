@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
+#include <semaphore.h>
+
 
 #include "VapourSynth.h"
 
@@ -24,9 +26,17 @@ enum supported_colorspace {
 };
 
 typedef struct {
+    struct priv* vf;
+    bool available;
+} entry;
+
+#define PARALLELISM 8
+
+typedef struct {
     VSNodeRef *node;
     const VSVideoInfo *vi;
-    struct priv *vf;
+    entry pool[PARALLELISM];
+    sem_t n_free;
 
     struct pl_render_params *renderParams;
 
@@ -47,11 +57,9 @@ typedef struct {
     bool use_dovi;
 } TMData;
 
-bool vspl_tonemap_do_planes(TMData *tm_data, struct pl_plane *planes,
+bool vspl_tonemap_do_planes(TMData *tm_data, struct priv *p, struct pl_plane *planes,
                  const struct pl_color_repr src_repr, const struct pl_color_repr dst_repr)
 {
-    struct priv *p = tm_data->vf;
-
     struct pl_frame img = {
         .num_planes = 3,
         .planes     = {planes[0], planes[1], planes[2]},
@@ -77,10 +85,8 @@ bool vspl_tonemap_do_planes(TMData *tm_data, struct pl_plane *planes,
     return pl_render_image(p->rr, &img, &out, tm_data->renderParams);
 }
 
-bool vspl_tonemap_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *vsapi)
+bool vspl_tonemap_reconfig(struct priv *p, struct pl_plane_data *data, const VSAPI *vsapi)
 {
-    struct priv *p = priv;
-
     pl_fmt fmt = pl_plane_find_fmt(p->gpu, NULL, &data[0]);
     if (!fmt) {
         vsapi->logMessage(mtCritical, "Failed configuring filter: no good texture format!\n");
@@ -129,11 +135,9 @@ bool vspl_tonemap_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *
     return true;
 }
 
-bool vspl_tonemap_filter(TMData *tm_data, void *dst, struct pl_plane_data *src, const VSAPI *vsapi,
+bool vspl_tonemap_filter(TMData *tm_data, struct priv *p, void *dst, struct pl_plane_data *src, const VSAPI *vsapi,
                const struct pl_color_repr src_repr, const struct pl_color_repr dst_repr)
 {
-    struct priv *p = tm_data->vf;
-
     // Upload planes
     struct pl_plane planes[4] = {0};
 
@@ -148,7 +152,7 @@ bool vspl_tonemap_filter(TMData *tm_data, void *dst, struct pl_plane_data *src, 
     }
 
     // Process plane
-    if (!vspl_tonemap_do_planes(tm_data, planes, src_repr, dst_repr)) {
+    if (!vspl_tonemap_do_planes(tm_data, p, planes, src_repr, dst_repr)) {
         vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
@@ -399,14 +403,19 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
         }
 
         void *packed_dst = malloc(w * h * 2 * 3);
-        pthread_mutex_lock(&tm_data->lock); // libplacebo isn’t thread-safe
-
-        if (vspl_tonemap_reconfig(tm_data->vf, planes, vsapi)) {
-            vspl_tonemap_filter(tm_data, packed_dst, planes, vsapi, src_repr, dst_repr);
-        }
-
+        sem_wait(&tm_data->n_free);
+        pthread_mutex_lock(&tm_data->lock);
+        int pi = 0;
+        for (; !tm_data->pool[pi].available; pi++);
+        tm_data->pool[pi].available = false;
         pthread_mutex_unlock(&tm_data->lock);
 
+        if (vspl_tonemap_reconfig(tm_data->pool[pi].vf, planes, vsapi))
+            vspl_tonemap_filter(tm_data, tm_data->pool[pi].vf, packed_dst, planes, vsapi, src_repr, dst_repr);
+
+        tm_data->pool[pi].available = true;
+        sem_post(&tm_data->n_free);
+//
         struct p2p_buffer_param pack_params = {
             .width = w,
             .height = h,
@@ -438,7 +447,7 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
 static void VS_CC VSPlaceboTMFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
     TMData *tm_data = (TMData *) instanceData;
     vsapi->freeNode(tm_data->node);
-    VSPlaceboUninit(tm_data->vf);
+//    VSPlaceboUninit(tm_data->vf);
 
     free((void *) tm_data->src_pl_csp);
     free((void *) tm_data->dst_pl_csp);
@@ -469,7 +478,11 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
 
-    d.vf = VSPlaceboInit(log_level);
+    for (int i = 0; i < PARALLELISM; ++i) {
+        d.pool[i].vf = VSPlaceboInit(log_level);
+        d.pool[i].available = true;
+        sem_init(&d.n_free, 0, PARALLELISM);
+    }
 
     if (d.vi->format->bitsPerSample != 16) {
         vsapi->setError(out, "placebo.Tonemap: Input must be 16 bits per sample!");
@@ -538,6 +551,9 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
     }
 
     switch (src_csp) {
+        case CSP_SDR:
+            *src_pl_csp = pl_color_space_bt709;
+            break;
         case CSP_HDR10:
         case CSP_DOVI:
             *src_pl_csp = pl_color_space_hdr10;
