@@ -26,16 +26,9 @@ enum supported_colorspace {
 };
 
 typedef struct {
-    struct priv* vf;
-    bool available;
-} entry;
-
-#define PARALLELISM 1
-
-typedef struct {
     VSNodeRef *node;
     const VSVideoInfo *vi;
-    entry pool[PARALLELISM];
+    struct priv* vf;
     sem_t n_free;
 
     struct pl_render_params *renderParams;
@@ -57,9 +50,10 @@ typedef struct {
     bool use_dovi;
 } TMData;
 
-bool vspl_tonemap_do_planes(TMData *tm_data, struct priv *p, struct pl_plane *planes,
+bool vspl_tonemap_do_planes(TMData *tm_data, struct pl_plane *planes,
                  const struct pl_color_repr src_repr, const struct pl_color_repr dst_repr)
 {
+    struct priv *p = tm_data->vf;
     struct pl_frame img = {
         .num_planes = 3,
         .planes     = {planes[0], planes[1], planes[2]},
@@ -90,7 +84,6 @@ bool vspl_tonemap_do_planes(TMData *tm_data, struct priv *p, struct pl_plane *pl
         .repr = dst_repr,
         .color = *tm_data->dst_pl_csp,
     };
-
     return pl_render_image(p->rr, &img, &out, tm_data->renderParams);
 }
 
@@ -143,10 +136,11 @@ bool vspl_tonemap_reconfig(struct priv *p, struct pl_plane_data *data, const VSA
     return true;
 }
 
-bool vspl_tonemap_filter(TMData *tm_data, struct priv *p, pl_buf* dst, struct pl_plane_data *src, const VSAPI *vsapi,
+bool vspl_tonemap_filter(TMData *tm_data, pl_buf* dst, struct pl_plane_data *src, const VSAPI *vsapi,
                const struct pl_color_repr src_repr, const struct pl_color_repr dst_repr)
 {
     // Upload planes
+    struct priv *p = tm_data->vf;
     struct pl_plane planes[4] = {0};
     bool ok = true;
     for (int i = 0; i < 3; ++i) {
@@ -157,20 +151,17 @@ bool vspl_tonemap_filter(TMData *tm_data, struct priv *p, pl_buf* dst, struct pl
         vsapi->logMessage(mtCritical, "Failed uploading data to the GPU!\n");
         return false;
     }
-
     // Process plane
-    if (!vspl_tonemap_do_planes(tm_data, p, planes, src_repr, dst_repr)) {
+    if (!vspl_tonemap_do_planes(tm_data, planes, src_repr, dst_repr)) {
         vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
-
 //     Download planes
     for (int i = 0; i < 3; ++i) {
         pl_fmt out_fmt = p->tex_out[i]->params.format;
         ok &= pl_tex_download(p->gpu, pl_tex_transfer_params(
                 .tex = p->tex_out[i],
                 .row_pitch = (src->row_stride / src->pixel_stride) * out_fmt->texel_size,
-//        .row_pitch = 3840,
                 .buf = dst[i]
         ));
     }
@@ -414,27 +405,17 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
             planes[i].component_map[0] = i;
         }
 
-        sem_wait(&tm_data->n_free); // TODO: figure out why a simple mutex sometimes deadlocks but thsi doesnt
-        pthread_mutex_lock(&tm_data->lock);
-        int pi = 0;
-        for (; !tm_data->pool[pi].available; pi++);
-        tm_data->pool[pi].available = false;
-        pthread_mutex_unlock(&tm_data->lock);
-//        int pi = 0;
         pl_buf dst_buf[3];
         for (int i = 0; i < 3; ++i) {
-            dst_buf[i] = pl_buf_create(tm_data->pool[pi].vf->gpu, pl_buf_params(
+            dst_buf[i] = pl_buf_create(tm_data->vf->gpu, pl_buf_params(
                     .size = w * h * 2,
                     .host_mapped = true,
             ));
         }
-//        pthread_mutex_lock(&tm_data->lock);
-        if (vspl_tonemap_reconfig(tm_data->pool[pi].vf, planes, vsapi))
-            vspl_tonemap_filter(tm_data, tm_data->pool[pi].vf, dst_buf, planes, vsapi, src_repr, dst_repr);
-//        pthread_mutex_unlock(&tm_data->lock);
-        tm_data->pool[pi].available = true;
-        sem_post(&tm_data->n_free);
-
+        pthread_mutex_lock(&tm_data->lock);
+        if (vspl_tonemap_reconfig(tm_data->vf, planes, vsapi))
+            vspl_tonemap_filter(tm_data, dst_buf, planes, vsapi, src_repr, dst_repr);
+        pthread_mutex_unlock(&tm_data->lock);
 
 //        while (pl_buf_poll(tm_data->pool[pi].vf->gpu, dst_buf[0], UINT64_MAX) ||
 //               pl_buf_poll(tm_data->pool[pi].vf->gpu, dst_buf[1], UINT64_MAX) ||
@@ -448,11 +429,11 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
         char rdy[3] = {0,0,0};
         while (!(rdy[0] & rdy[1] & rdy[2])) {
             for (int i = 0; i < 3; ++i) {
-                if (rdy[i] || pl_buf_poll(tm_data->pool[pi].vf->gpu, dst_buf[i], UINT64_MAX))
+                if (rdy[i] || pl_buf_poll(tm_data->vf->gpu, dst_buf[i], UINT64_MAX))
                     continue;
                 rdy[i] = 1;
                 memcpy(vsapi->getWritePtr(dst, i), dst_buf[i]->data, dst_buf[i]->params.size);
-                pl_buf_destroy(tm_data->pool[pi].vf->gpu, &dst_buf[i]);
+                pl_buf_destroy(tm_data->vf->gpu, &dst_buf[i]);
             }
         }
 
@@ -471,7 +452,7 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
 static void VS_CC VSPlaceboTMFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
     TMData *tm_data = (TMData *) instanceData;
     vsapi->freeNode(tm_data->node);
-//    VSPlaceboUninit(tm_data->vf);
+    VSPlaceboUninit(tm_data->vf);
 
     free((void *) tm_data->src_pl_csp);
     free((void *) tm_data->dst_pl_csp);
@@ -502,11 +483,7 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
     d.node = vsapi->propGetNode(in, "clip", 0, 0);
     d.vi = vsapi->getVideoInfo(d.node);
 
-    for (int i = 0; i < PARALLELISM; ++i) {
-        d.pool[i].vf = VSPlaceboInit(log_level);
-        d.pool[i].available = true;
-        sem_init(&d.n_free, 0, PARALLELISM);
-    }
+    d.vf = VSPlaceboInit(log_level);
 
     if (d.vi->format->bitsPerSample != 16) {
         vsapi->setError(out, "placebo.Tonemap: Input must be 16 bits per sample!");
