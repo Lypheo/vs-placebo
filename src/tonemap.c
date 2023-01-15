@@ -30,7 +30,7 @@ typedef struct {
     bool available;
 } entry;
 
-#define PARALLELISM 8
+#define PARALLELISM 1
 
 typedef struct {
     VSNodeRef *node;
@@ -72,12 +72,21 @@ bool vspl_tonemap_do_planes(TMData *tm_data, struct priv *p, struct pl_plane *pl
     }
 
     struct pl_frame out = {
-        .num_planes = 1,
+        .num_planes = 3,
         .planes = {{
             .texture = p->tex_out[0],
-            .components = p->tex_out[0]->params.format->num_components,
-            .component_mapping = {0, 1, 2, 3},
-        }},
+            .components = 1,
+            .component_mapping[0] = 0,
+        },{
+            .texture = p->tex_out[1],
+            .components = 1,
+            .component_mapping[0] = 1,
+        },{
+            .texture = p->tex_out[2],
+            .components = 1,
+            .component_mapping[0] = 2,
+        },
+        },
         .repr = dst_repr,
         .color = *tm_data->dst_pl_csp,
     };
@@ -104,28 +113,27 @@ bool vspl_tonemap_reconfig(struct priv *p, struct pl_plane_data *data, const VSA
         ));
     }
 
-    const struct pl_plane_data plane_data = {
-        .type = PL_FMT_UNORM,
-        .component_map = {0, 1, 2, 0},
-        .component_pad = {0, 0, 0, 0},
-        .component_size = {16, 16, 16, 0},
-        .width = 10,
-        .height = 10,
-        .row_stride = 60,
-        .pixel_stride = 6
-    };
+    for (int i = 0; i < 3; ++i) {
+        const struct pl_plane_data plane_data = {
+                .type = PL_FMT_UNORM,
+                .component_map[0] = i,
+                .component_pad[0] = 0,
+                .component_size[0] = 16,
+                .width = data[0].width,
+                .height = data[0].height,
+                .pixel_stride = 2,
+        };
+        pl_fmt out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
 
-    pl_fmt out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
+        ok &= pl_tex_recreate(p->gpu, &p->tex_out[i], pl_tex_params(
+                .w = data->width,
+                .h = data->height,
+                .format = out,
+                .renderable = true,
+                .host_readable = true,
+        ));
 
-    ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], pl_tex_params(
-        .w = data->width,
-        .h = data->height,
-        .format = out,
-        .renderable = true,
-        .host_readable = true,
-        .storable = true,
-        .blit_dst = true,
-    ));
+    }
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed creating GPU textures!\n");
@@ -135,12 +143,11 @@ bool vspl_tonemap_reconfig(struct priv *p, struct pl_plane_data *data, const VSA
     return true;
 }
 
-bool vspl_tonemap_filter(TMData *tm_data, struct priv *p, void *dst, struct pl_plane_data *src, const VSAPI *vsapi,
+bool vspl_tonemap_filter(TMData *tm_data, struct priv *p, pl_buf* dst, struct pl_plane_data *src, const VSAPI *vsapi,
                const struct pl_color_repr src_repr, const struct pl_color_repr dst_repr)
 {
     // Upload planes
     struct pl_plane planes[4] = {0};
-
     bool ok = true;
     for (int i = 0; i < 3; ++i) {
         ok &= pl_upload_plane(p->gpu, &planes[i], &p->tex_in[i], &src[i]);
@@ -157,14 +164,16 @@ bool vspl_tonemap_filter(TMData *tm_data, struct priv *p, void *dst, struct pl_p
         return false;
     }
 
-    pl_fmt out_fmt = p->tex_out[0]->params.format;
-
-    // Download planes
-    ok = pl_tex_download(p->gpu, pl_tex_transfer_params(
-        .tex = p->tex_out[0],
-        .row_pitch = (src->row_stride / src->pixel_stride) * out_fmt->texel_size,
-        .ptr = dst,
-    ));
+//     Download planes
+    for (int i = 0; i < 3; ++i) {
+        pl_fmt out_fmt = p->tex_out[i]->params.format;
+        ok &= pl_tex_download(p->gpu, pl_tex_transfer_params(
+                .tex = p->tex_out[i],
+                .row_pitch = (src->row_stride / src->pixel_stride) * out_fmt->texel_size,
+//        .row_pitch = 3840,
+                .buf = dst[i]
+        ));
+    }
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed downloading data from the GPU!\n");
@@ -199,44 +208,46 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
 
         // Validate props for Dolby Vision mapping
         if (tm_data->src_csp == CSP_DOVI && vsapi->propNumElements(props, "DolbyVisionRPU") == -1) {
-            vsapi->setFilterError("placebo.Tonemap: Clip is missing `DolbyVisionRPU` prop for Dolby Vision mapping!", frameCtx);
+            vsapi->setFilterError("placebo.Tonemap: Clip is missing `DolbyVisionRPU` prop for Dolby Vision mapping!",
+                                  frameCtx);
 
             return NULL;
         }
 
-        int w = vsapi->getFrameWidth(frame, 0);    
+        int w = vsapi->getFrameWidth(frame, 0);
         int h = vsapi->getFrameHeight(frame, 0);
 
         const VSFormat *src_fmt = tm_data->vi->format;
-        const VSFormat *dstFmt = vsapi->registerFormat(src_fmt->colorFamily, src_fmt->sampleType, src_fmt->bitsPerSample, 0, 0, core);
+        const VSFormat *dstFmt = vsapi->registerFormat(src_fmt->colorFamily, src_fmt->sampleType,
+                                                       src_fmt->bitsPerSample, 0, 0, core);
 
         VSFrameRef *dst = vsapi->newVideoFrame(dstFmt, w, h, frame, core);
 
         const bool srcIsRGB = src_fmt->colorFamily == cmRGB;
 
         enum pl_color_system src_sys = srcIsRGB
-                                        ? PL_COLOR_SYSTEM_RGB
-                                        : PL_COLOR_SYSTEM_BT_2020_NC;
+                                       ? PL_COLOR_SYSTEM_RGB
+                                       : PL_COLOR_SYSTEM_BT_2020_NC;
         enum pl_color_system dst_sys = PL_COLOR_SYSTEM_RGB;
 
         struct pl_color_repr src_repr = {
-            .bits = {
-                .sample_depth = 16,
-                .color_depth = 16,
-                .bit_shift = 0
-            },
-            .sys = src_sys,
+                .bits = {
+                        .sample_depth = 16,
+                        .color_depth = 16,
+                        .bit_shift = 0
+                },
+                .sys = src_sys,
         };
 
         struct pl_color_repr dst_repr = {
-            .bits = {
-                .sample_depth = 16,
-                .color_depth = 16,
-                .bit_shift = 0
-            },
-            .sys = dst_sys,
-            .levels = PL_COLOR_LEVELS_FULL,
-            .alpha = PL_ALPHA_PREMULTIPLIED,
+                .bits = {
+                        .sample_depth = 16,
+                        .color_depth = 16,
+                        .bit_shift = 0
+                },
+                .sys = dst_sys,
+                .levels = PL_COLOR_LEVELS_FULL,
+                .alpha = PL_ALPHA_PREMULTIPLIED,
         };
 
         int64_t props_levels = vsapi->propGetInt(props, "_ColorRange", 0, &err);
@@ -256,7 +267,8 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
 
             if (tm_data->dst_pl_csp->transfer == PL_COLOR_TRC_BT_1886) {
                 dst_repr.sys = PL_COLOR_SYSTEM_BT_709;
-            } else if (tm_data->dst_pl_csp->transfer == PL_COLOR_TRC_PQ || tm_data->dst_pl_csp->transfer == PL_COLOR_TRC_HLG) {
+            } else if (tm_data->dst_pl_csp->transfer == PL_COLOR_TRC_PQ ||
+                       tm_data->dst_pl_csp->transfer == PL_COLOR_TRC_HLG) {
                 dst_repr.sys = PL_COLOR_SYSTEM_BT_2020_NC;
             }
         }
@@ -317,84 +329,84 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
         }
 
         // DOVI
-        #if PL_API_VER >= 185
-            struct pl_dovi_metadata *dovi_meta = NULL;
-            uint8_t dovi_profile = 0;
+#if PL_API_VER >= 185
+        struct pl_dovi_metadata *dovi_meta = NULL;
 
-            #ifdef HAVE_DOVI
-                if (tm_data->use_dovi && vsapi->propNumElements(props, "DolbyVisionRPU")) {
-                    uint8_t *doviRpu = (uint8_t *) vsapi->propGetData(props, "DolbyVisionRPU", 0, &err);
-                    size_t doviRpuSize = (size_t) vsapi->propGetDataSize(props, "DolbyVisionRPU", 0, &err);
+#ifdef HAVE_DOVI
+        uint8_t dovi_profile = 0;
+        if (tm_data->use_dovi && vsapi->propNumElements(props, "DolbyVisionRPU")) {
+            uint8_t *doviRpu = (uint8_t *) vsapi->propGetData(props, "DolbyVisionRPU", 0, &err);
+            size_t doviRpuSize = (size_t) vsapi->propGetDataSize(props, "DolbyVisionRPU", 0, &err);
 
-                    if (doviRpu && doviRpuSize) {
-                        DoviRpuOpaque *rpu = dovi_parse_unspec62_nalu(doviRpu, doviRpuSize);
-                        const DoviRpuDataHeader *header = dovi_rpu_get_header(rpu);
+            if (doviRpu && doviRpuSize) {
+                DoviRpuOpaque *rpu = dovi_parse_unspec62_nalu(doviRpu, doviRpuSize);
+                const DoviRpuDataHeader *header = dovi_rpu_get_header(rpu);
 
-                        if (!header) {
-                            fprintf(stderr, "Failed parsing RPU: %s\n", dovi_rpu_get_error(rpu));
-                        } else {
-                            dovi_profile = header->guessed_profile;
+                if (!header) {
+                    fprintf(stderr, "Failed parsing RPU: %s\n", dovi_rpu_get_error(rpu));
+                } else {
+                    dovi_profile = header->guessed_profile;
 
-                            dovi_meta = create_dovi_meta(rpu, header);
-                            dovi_rpu_free_header(header);
-                        }
+                    dovi_meta = create_dovi_meta(rpu, header);
+                    dovi_rpu_free_header(header);
+                }
 
-                        // Profile 5, 7 or 8 mapping
-                        if (tm_data->src_csp == CSP_DOVI) {
-                            src_repr.sys = PL_COLOR_SYSTEM_DOLBYVISION;
-                            src_repr.dovi = dovi_meta;
+                // Profile 5, 7 or 8 mapping
+                if (tm_data->src_csp == CSP_DOVI) {
+                    src_repr.sys = PL_COLOR_SYSTEM_DOLBYVISION;
+                    src_repr.dovi = dovi_meta;
 
-                            if (dovi_profile == 5) {
-                                dst_repr.levels = PL_COLOR_LEVELS_FULL;
-                            }
-                        }
-
-                        // Update mastering display from RPU
-                        if (header->vdr_dm_metadata_present_flag) {
-                            const DoviVdrDmData *vdr_dm_data = dovi_rpu_get_vdr_dm_data(rpu);
-
-                            // Should avoid changing the source black point when mapping to PQ
-                            // As the source image already has a specific black point,
-                            // and the RPU isn't necessarily ground truth on the actual coded values
-                            //
-                            // Set target black point to the same as source
-                            if (tm_data->src_csp == CSP_DOVI && tm_data->dst_csp == CSP_HDR10) {
-                                tm_data->dst_pl_csp->hdr.min_luma = src_pl_csp->hdr.min_luma;
-                            } else {
-                                src_pl_csp->hdr.min_luma =
-                                    pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, vdr_dm_data->source_min_pq / 4095.0f);
-                            }
-
-                            src_pl_csp->hdr.max_luma =
-                                pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, vdr_dm_data->source_max_pq / 4095.0f);
-
-                            if (vdr_dm_data->dm_data.level6) {
-                                const DoviExtMetadataBlockLevel6 *meta = vdr_dm_data->dm_data.level6;
-                                
-                                if (!maxCll || !maxFall) {
-                                    src_pl_csp->hdr.max_cll = meta->max_content_light_level;
-                                    src_pl_csp->hdr.max_fall = meta->max_frame_average_light_level;
-                                }
-                            }
-
-                            dovi_rpu_free_vdr_dm_data(vdr_dm_data);
-                        }
-                        
-                        dovi_rpu_free(rpu);
+                    if (dovi_profile == 5) {
+                        dst_repr.levels = PL_COLOR_LEVELS_FULL;
                     }
                 }
-            #endif
-        #endif
+
+                // Update mastering display from RPU
+                if (header->vdr_dm_metadata_present_flag) {
+                    const DoviVdrDmData *vdr_dm_data = dovi_rpu_get_vdr_dm_data(rpu);
+
+                    // Should avoid changing the source black point when mapping to PQ
+                    // As the source image already has a specific black point,
+                    // and the RPU isn't necessarily ground truth on the actual coded values
+                    //
+                    // Set target black point to the same as source
+                    if (tm_data->src_csp == CSP_DOVI && tm_data->dst_csp == CSP_HDR10) {
+                        tm_data->dst_pl_csp->hdr.min_luma = src_pl_csp->hdr.min_luma;
+                    } else {
+                        src_pl_csp->hdr.min_luma =
+                            pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, vdr_dm_data->source_min_pq / 4095.0f);
+                    }
+
+                    src_pl_csp->hdr.max_luma =
+                        pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, vdr_dm_data->source_max_pq / 4095.0f);
+
+                    if (vdr_dm_data->dm_data.level6) {
+                        const DoviExtMetadataBlockLevel6 *meta = vdr_dm_data->dm_data.level6;
+
+                        if (!maxCll || !maxFall) {
+                            src_pl_csp->hdr.max_cll = meta->max_content_light_level;
+                            src_pl_csp->hdr.max_fall = meta->max_frame_average_light_level;
+                        }
+                    }
+
+                    dovi_rpu_free_vdr_dm_data(vdr_dm_data);
+                }
+
+                dovi_rpu_free(rpu);
+            }
+        }
+#endif
+#endif
 
         struct pl_plane_data planes[3] = {};
         for (int i = 0; i < 3; ++i) {
             planes[i] = (struct pl_plane_data) {
-                .type = PL_FMT_UNORM,
-                .width = vsapi->getFrameWidth(frame, i),
-                .height = vsapi->getFrameHeight(frame, i),
-                .pixel_stride = dstFmt->bytesPerSample,
-                .row_stride = vsapi->getStride(frame, i),
-                .pixels = vsapi->getReadPtr((VSFrameRef *) frame, i),
+                    .type = PL_FMT_UNORM,
+                    .width = vsapi->getFrameWidth(frame, i),
+                    .height = vsapi->getFrameHeight(frame, i),
+                    .pixel_stride = dstFmt->bytesPerSample,
+                    .row_stride = vsapi->getStride(frame, i),
+                    .pixels = vsapi->getReadPtr((VSFrameRef *) frame, i),
             };
 
             planes[i].component_size[0] = 16;
@@ -402,39 +414,51 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
             planes[i].component_map[0] = i;
         }
 
-        void *packed_dst = malloc(w * h * 2 * 3);
-        sem_wait(&tm_data->n_free);
+        sem_wait(&tm_data->n_free); // TODO: figure out why a simple mutex sometimes deadlocks but thsi doesnt
         pthread_mutex_lock(&tm_data->lock);
         int pi = 0;
         for (; !tm_data->pool[pi].available; pi++);
         tm_data->pool[pi].available = false;
         pthread_mutex_unlock(&tm_data->lock);
-
+//        int pi = 0;
+        pl_buf dst_buf[3];
+        for (int i = 0; i < 3; ++i) {
+            dst_buf[i] = pl_buf_create(tm_data->pool[pi].vf->gpu, pl_buf_params(
+                    .size = w * h * 2,
+                    .host_mapped = true,
+            ));
+        }
+//        pthread_mutex_lock(&tm_data->lock);
         if (vspl_tonemap_reconfig(tm_data->pool[pi].vf, planes, vsapi))
-            vspl_tonemap_filter(tm_data, tm_data->pool[pi].vf, packed_dst, planes, vsapi, src_repr, dst_repr);
-
+            vspl_tonemap_filter(tm_data, tm_data->pool[pi].vf, dst_buf, planes, vsapi, src_repr, dst_repr);
+//        pthread_mutex_unlock(&tm_data->lock);
         tm_data->pool[pi].available = true;
         sem_post(&tm_data->n_free);
-//
-        struct p2p_buffer_param pack_params = {
-            .width = w,
-            .height = h,
-            .packing = p2p_bgr48_le,
-            .src[0] = packed_dst,
-            .src_stride[0] = w * 2 * 3,
-        };
 
-        for (int i = 0; i < 3; ++i) {
-            pack_params.dst[i] = vsapi->getWritePtr(dst, i);
-            pack_params.dst_stride[i] = vsapi->getStride(dst, i);
+
+//        while (pl_buf_poll(tm_data->pool[pi].vf->gpu, dst_buf[0], UINT64_MAX) ||
+//               pl_buf_poll(tm_data->pool[pi].vf->gpu, dst_buf[1], UINT64_MAX) ||
+//               pl_buf_poll(tm_data->pool[pi].vf->gpu, dst_buf[2], UINT64_MAX))
+//            ;
+//        for (int i = 0; i < 3; ++i) {
+//            memcpy(vsapi->getWritePtr(dst, i), dst_buf[i]->data, dst_buf[i]->params.size);
+//            pl_buf_destroy(tm_data->pool[pi].vf->gpu, &dst_buf[i]);
+//        }
+        // should be faster than the above in theory (I think) but I couldnt measure a reliable difference ¯\_(ツ)_/¯
+        char rdy[3] = {0,0,0};
+        while (!(rdy[0] & rdy[1] & rdy[2])) {
+            for (int i = 0; i < 3; ++i) {
+                if (rdy[i] || pl_buf_poll(tm_data->pool[pi].vf->gpu, dst_buf[i], UINT64_MAX))
+                    continue;
+                rdy[i] = 1;
+                memcpy(vsapi->getWritePtr(dst, i), dst_buf[i]->data, dst_buf[i]->params.size);
+                pl_buf_destroy(tm_data->pool[pi].vf->gpu, &dst_buf[i]);
+            }
         }
 
-        p2p_unpack_frame(&pack_params, 0);
-        free(packed_dst);
-
         #if PL_API_VER >= 185
-            if (dovi_meta)
-                free((void *) dovi_meta);
+        if (dovi_meta)
+            free((void *) dovi_meta);
         #endif
 
         vsapi->freeFrame(frame);
