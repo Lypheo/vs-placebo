@@ -193,7 +193,6 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
         vsapi->requestFrameFilter(n, tm_data->node, frameCtx);
     } else if (activationReason == arAllFramesReady) {
         const VSFrameRef *frame = vsapi->getFrameFilter(n, tm_data->node, frameCtx);
-
         int err;
         const VSMap *props = vsapi->getFramePropsRO(frame);
 
@@ -417,25 +416,25 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
             vspl_tonemap_filter(tm_data, dst_buf, planes, vsapi, src_repr, dst_repr);
         pthread_mutex_unlock(&tm_data->lock);
 
-//        while (pl_buf_poll(tm_data->pool[pi].vf->gpu, dst_buf[0], UINT64_MAX) ||
-//               pl_buf_poll(tm_data->pool[pi].vf->gpu, dst_buf[1], UINT64_MAX) ||
-//               pl_buf_poll(tm_data->pool[pi].vf->gpu, dst_buf[2], UINT64_MAX))
-//            ;
-//        for (int i = 0; i < 3; ++i) {
-//            memcpy(vsapi->getWritePtr(dst, i), dst_buf[i]->data, dst_buf[i]->params.size);
-//            pl_buf_destroy(tm_data->pool[pi].vf->gpu, &dst_buf[i]);
-//        }
-        // should be faster than the above in theory (I think) but I couldnt measure a reliable difference ¯\_(ツ)_/¯
-        char rdy[3] = {0,0,0};
-        while (!(rdy[0] & rdy[1] & rdy[2])) {
-            for (int i = 0; i < 3; ++i) {
-                if (rdy[i] || pl_buf_poll(tm_data->vf->gpu, dst_buf[i], UINT64_MAX))
-                    continue;
-                rdy[i] = 1;
-                memcpy(vsapi->getWritePtr(dst, i), dst_buf[i]->data, dst_buf[i]->params.size);
-                pl_buf_destroy(tm_data->vf->gpu, &dst_buf[i]);
-            }
+        while (pl_buf_poll(tm_data->vf->gpu, dst_buf[0], UINT64_MAX) ||
+               pl_buf_poll(tm_data->vf->gpu, dst_buf[1], UINT64_MAX) ||
+               pl_buf_poll(tm_data->vf->gpu, dst_buf[2], UINT64_MAX))
+            ;
+        for (int i = 0; i < 3; ++i) {
+            memcpy(vsapi->getWritePtr(dst, i), dst_buf[i]->data, dst_buf[i]->params.size);
+            pl_buf_destroy(tm_data->vf->gpu, &dst_buf[i]);
         }
+        // should be faster than the above in theory (I think) but I could’t measure a reliable difference ¯\_(ツ)_/¯
+//        char rdy[3] = {0,0,0};
+//        while (!(rdy[0] & rdy[1] & rdy[2])) {
+//            for (int i = 0; i < 3; ++i) {
+//                if (rdy[i] || pl_buf_poll(tm_data->vf->gpu, dst_buf[i], UINT64_MAX))
+//                    continue;
+//                rdy[i] = 1;
+//                memcpy(vsapi->getWritePtr(dst, i), dst_buf[i]->data, dst_buf[i]->params.size);
+//                pl_buf_destroy(tm_data->vf->gpu, &dst_buf[i]);
+//            }
+//        }
 
         #if PL_API_VER >= 185
         if (dovi_meta)
