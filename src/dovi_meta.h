@@ -53,11 +53,11 @@
                         cmp->mmr_constant[i] = ipart + scale * fpart;
                         cmp->mmr_order[i] = mmr_curve->mmr_order_minus1.data[i] + 1;
 
-                        for (int j = 1; j <= cmp->mmr_order[i]; j++) {
+                        for (int j = 0; j < cmp->mmr_order[i]; j++) {
                             for (int k = 0; k < 7; k++) {
                                 ipart = mmr_curve->mmr_coef_int.list[i]->list[j]->data[k];
                                 fpart = mmr_curve->mmr_coef.list[i]->list[j]->data[k];
-                                cmp->mmr_coeffs[i][j - 1][k] = ipart + scale * fpart;
+                                cmp->mmr_coeffs[i][j][k] = ipart + scale * fpart;
                             }
                         }
                     }
