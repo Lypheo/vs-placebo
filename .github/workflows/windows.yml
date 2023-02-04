@@ -17,7 +17,6 @@ jobs:
       image: docker://archlinux:base-devel
 
     steps:
-
       - name: Get current date and random hash
         run: |
           echo "short_date=$(date "+%Y%m%d")" >> $GITHUB_ENV
@@ -27,11 +26,11 @@ jobs:
         run: |
           echo -e "[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
           pacman -Syu --noconfirm
-          pacman -S --noconfirm --needed jq openssh git gyp mercurial subversion ninja \
-            cmake ragel yasm nasm asciidoc enca gperf unzip p7zip gcc-multilib clang \
-            python-pip curl lib32-glib2 wget rustup cargo-c
+          pacman -S --noconfirm --needed git gyp mercurial subversion ninja cmake meson \
+            ragel yasm nasm asciidoc enca gperf unzip p7zip gcc-multilib clang \
+            python-pip curl rustup cargo-c
 
-          pip3 install rst2pdf mako meson
+          pip3 install rst2pdf mako jsonschema
           git config --global user.name "github-actions"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory $PWD
@@ -41,31 +40,15 @@ jobs:
           repository: quietvoid/mpv-winbuild-cmake
           ref: vs-placebo-libdovi
 
-      - name: Cache
-        uses: actions/cache@v3
-        id: cache
-        with:
-          path: |
-            src_packages
-            build64
-          key: ${{ runner.os }}-build-mycache-vsplacebo-libdovi
-
-      - name: Cache info
-        run: |
-          echo "Cache hit: ${{ steps.cache.outputs.cache-hit }}"
-
       - name: Downloading source
-        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         run: |
           cmake -DTARGET_ARCH=x86_64-w64-mingw32 -DALWAYS_REMOVE_BUILDFILES=ON -DSINGLE_SOURCE_LOCATION=$PWD/src_packages -G Ninja -Bbuild64 -H.
           ninja -C build64 download || true
 
       - name: Building toolchain
-        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         id: build_toolchain
         continue-on-error: true
-        run: |
-          if [[ ! "$(ls -A build64/install/bin)" ]]; then ninja -C build64 gcc; fi
+        run: ninja -C build64 gcc
 
       - name: Update dependencies
         id: update_deps
@@ -75,7 +58,7 @@ jobs:
 
       - name: Building vs-placebo
         id: build_vs_placebo
-        if: ${{ steps.cache.outputs.cache-hit == 'true' || steps.build_toolchain.outcome == 'success' }}
+        if: ${{ steps.build_toolchain.outcome == 'success' }}
         continue-on-error: true
         run: |
           ninja -C build64 vs-placebo
@@ -113,9 +96,3 @@ jobs:
           name: logs
           path: logs.7z
           retention-days: 1
-
-      - name: Cleaning build directory
-        id: delete_build_dir
-        run: |
-          ninja -C build64 clean
-          du -sh build64 src_packages /var/cache/pacman/pkg || true

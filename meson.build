@@ -4,17 +4,11 @@ project('vs-placebo', ['c', 'cpp'],
   version: '1.4.3'
 )
 
-win32 = host_machine.system() == 'windows' or host_machine.system() == 'cgywin'
+win32 = host_machine.system() == 'windows' or host_machine.system() == 'cygwin'
 
 placebo = dependency('libplacebo', required: true, version: '>=5.229.0', static: win32)
 vapoursynth_dep = dependency('vapoursynth', static: win32).partial_dependency(includes: true, compile_args: true)
-
-if win32
-  cc = meson.get_compiler('c')
-  dovi = cc.find_library('dovi', required : false)
-else
-  dovi = dependency('dovi', required: false)
-endif
+dovi = dependency('dovi', required: false)
 
 use_dovi = dovi.found()
 
