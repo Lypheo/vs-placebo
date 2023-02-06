@@ -3,5 +3,5 @@ sources += [
   'src/deband.c',
   'src/tonemap.c',
   'src/resample.c',
-  'src/shader.c'
+  'src/shader.c',
 ]

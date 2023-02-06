@@ -60,12 +60,21 @@ bool vspl_shader_do_plane(struct priv *p, void *data, int n, struct pl_plane *pl
     }
 
     struct pl_frame out = {
-        .num_planes = 1,
+        .num_planes = 3,
         .planes = {{
-            .texture = p->tex_out[0],
-            .components = p->tex_out[0]->params.format->num_components,
-            .component_mapping = {0, 1, 2, 3},
-        }},
+               .texture = p->tex_out[0],
+               .components = 1,
+               .component_mapping[0] = 0,
+           },{
+               .texture = p->tex_out[1],
+               .components = 1,
+               .component_mapping[0] = 1,
+           },{
+               .texture = p->tex_out[2],
+               .components = 1,
+               .component_mapping[0] = 2,
+           },
+        },
         .repr = crpr,
         .color = csp,
     };
@@ -85,10 +94,8 @@ bool vspl_shader_do_plane(struct priv *p, void *data, int n, struct pl_plane *pl
     return pl_render_image(p->rr, &img, &out, &renderParams);
 }
 
-bool vspl_shader_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *vsapi, ShaderData *d)
+bool vspl_shader_reconfig(struct priv *p, struct pl_plane_data *data, const VSAPI *vsapi, ShaderData *d)
 {
-    struct priv *p = priv;
-
     pl_fmt fmt[3];
     for (int j = 0; j < 3; ++j) {
         fmt[j] = pl_plane_find_fmt(p->gpu, NULL, &data[j]);
@@ -109,23 +116,25 @@ bool vspl_shader_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *v
         ));
     }
 
-    const struct pl_plane_data plane_data = {
-        .type = PL_FMT_UNORM,
-        .component_map = {0, 1, 2, 0},
-        .component_pad = {0, 0, 0, 0},
-        .component_size = {16, 16, 16, 0},
-        .pixel_stride = 6
-    };
+    for (int i = 0; i < 3; ++i) {
+        const struct pl_plane_data plane_data = {
+                .type = PL_FMT_UNORM,
+                .component_map[0] = i,
+                .component_pad[0] = 0,
+                .component_size[0] = 16,
+                .pixel_stride = 2,
+        };
+        pl_fmt out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
 
-    pl_fmt out = pl_plane_find_fmt(p->gpu, NULL, &plane_data);
+        ok &= pl_tex_recreate(p->gpu, &p->tex_out[i], pl_tex_params(
+                .w = d->width,
+                .h = d->height,
+                .format = out,
+                .renderable = true,
+                .host_readable = true,
+        ));
 
-    ok &= pl_tex_recreate(p->gpu, &p->tex_out[0], pl_tex_params(
-        .w = d->width,
-        .h = d->height,
-        .format = out,
-        .renderable = true,
-        .host_readable = true,
-    ));
+    }
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed creating GPU textures!\n");
@@ -135,13 +144,12 @@ bool vspl_shader_reconfig(void *priv, struct pl_plane_data *data, const VSAPI *v
     return true;
 }
 
-bool vspl_shader_filter(void *priv, void *dst, struct pl_plane_data *src,  ShaderData *d, int n, const VSAPI *vsapi)
+bool vspl_shader_filter(struct priv *p, pl_buf* dst, struct pl_plane_data *src,  ShaderData *d, int n, const VSAPI *vsapi)
 {
-    struct priv *p = priv;
     // Upload planes
+
     struct pl_plane planes[4] = {0};
     bool ok = true;
-
     for (int i = 0; i < 3; ++i) {
         ok &= pl_upload_plane(p->gpu, &planes[i], &p->tex_in[i], &src[i]);
     }
@@ -158,10 +166,14 @@ bool vspl_shader_filter(void *priv, void *dst, struct pl_plane_data *src,  Shade
     }
 
     // Download planes
-    ok = pl_tex_download(p->gpu, pl_tex_transfer_params(
-        .tex = p->tex_out[0],
-        .ptr = dst,
-    ));
+    for (int i = 0; i < 3; ++i) {
+        pl_fmt out_fmt = p->tex_out[i]->params.format;
+        ok &= pl_tex_download(p->gpu, pl_tex_transfer_params(
+                .tex = p->tex_out[i],
+//                .row_pitch = (src->row_stride / src->pixel_stride) * out_fmt->texel_size,
+                .buf = dst[i]
+        ));
+    }
 
     if (!ok) {
         vsapi->logMessage(mtCritical, "Failed downloading data from the GPU!\n");
@@ -221,31 +233,40 @@ static const VSFrameRef *VS_CC VSPlaceboShaderGetFrame(int n, int activationReas
             planes[j].component_map[0] = j;
         }
 
-        void *packed_dst = malloc(d->width * d->height * 2 * 3);
+        pl_buf dst_buf[3];
+        for (int i = 0; i < 3; ++i) {
+            dst_buf[i] = pl_buf_create(d->vf->gpu, pl_buf_params(
+                    .size = d->width * d->height * 2,
+                    .host_mapped = true,
+            ));
+        }
 
         pthread_mutex_lock(&d->lock);
 
         if (vspl_shader_reconfig(d->vf, planes, vsapi, d)) {
-            vspl_shader_filter(d->vf, packed_dst, planes, d, n, vsapi);
+            vspl_shader_filter(d->vf, dst_buf, planes, d, n, vsapi);
         }
 
         pthread_mutex_unlock(&d->lock);
 
-        struct p2p_buffer_param pack_params = {
-            .width = d->width,
-            .height = d->height,
-            .packing = p2p_bgr48_le,
-            .src[0] = packed_dst,
-            .src_stride[0] = d->width * 2 * 3
-        };
-
-        for (int k = 0; k < 3; ++k) {
-            pack_params.dst[k] = vsapi->getWritePtr(dst, k);
-            pack_params.dst_stride[k] = vsapi->getStride(dst, k);
+        while (pl_buf_poll(d->vf->gpu, dst_buf[0], UINT64_MAX) ||
+               pl_buf_poll(d->vf->gpu, dst_buf[1], UINT64_MAX) ||
+               pl_buf_poll(d->vf->gpu, dst_buf[2], UINT64_MAX))
+            ;
+        for (int i = 0; i < 3; ++i) {
+            memcpy(vsapi->getWritePtr(dst, i), dst_buf[i]->data, dst_buf[i]->params.size);
+            pl_buf_destroy(d->vf->gpu, &dst_buf[i]);
         }
-
-        p2p_unpack_frame(&pack_params, 0);
-        free(packed_dst);
+//        char rdy[3] = {0,0,0};
+//        while (!(rdy[0] & rdy[1] & rdy[2])) {
+//            for (int i = 0; i < 3; ++i) {
+//                if (rdy[i] || pl_buf_poll(d->vf->gpu, dst_buf[i], UINT64_MAX))
+//                    continue;
+//                rdy[i] = 1;
+//                memcpy(vsapi->getWritePtr(dst, i), dst_buf[i]->data, dst_buf[i]->params.size);
+//                pl_buf_destroy(d->vf->gpu, &dst_buf[i]);
+//            }
+//        }
 
         vsapi->freeFrame(frame);
         return dst;
