@@ -144,7 +144,7 @@ bool vspl_shader_reconfig(struct priv *p, struct pl_plane_data *data, const VSAP
     return true;
 }
 
-bool vspl_shader_filter(struct priv *p, pl_buf* dst, struct pl_plane_data *src,  ShaderData *d, int n, const VSAPI *vsapi)
+bool vspl_shader_filter(struct priv *p, pl_buf* dst, int dst_stride, struct pl_plane_data *src,  ShaderData *d, int n, const VSAPI *vsapi)
 {
     // Upload planes
 
@@ -167,10 +167,9 @@ bool vspl_shader_filter(struct priv *p, pl_buf* dst, struct pl_plane_data *src, 
 
     // Download planes
     for (int i = 0; i < 3; ++i) {
-        pl_fmt out_fmt = p->tex_out[i]->params.format;
         ok &= pl_tex_download(p->gpu, pl_tex_transfer_params(
                 .tex = p->tex_out[i],
-//                .row_pitch = (src->row_stride / src->pixel_stride) * out_fmt->texel_size,
+                .row_pitch = dst_stride,
                 .buf = dst[i]
         ));
     }
@@ -233,10 +232,11 @@ static const VSFrameRef *VS_CC VSPlaceboShaderGetFrame(int n, int activationReas
             planes[j].component_map[0] = j;
         }
 
+        int dst_stride = vsapi->getStride(dst, 0);
         pl_buf dst_buf[3];
         for (int i = 0; i < 3; ++i) {
             dst_buf[i] = pl_buf_create(d->vf->gpu, pl_buf_params(
-                    .size = d->width * d->height * 2,
+                    .size = dst_stride * d->height,
                     .host_mapped = true,
             ));
         }
@@ -244,7 +244,7 @@ static const VSFrameRef *VS_CC VSPlaceboShaderGetFrame(int n, int activationReas
         pthread_mutex_lock(&d->lock);
 
         if (vspl_shader_reconfig(d->vf, planes, vsapi, d)) {
-            vspl_shader_filter(d->vf, dst_buf, planes, d, n, vsapi);
+            vspl_shader_filter(d->vf, dst_buf, dst_stride, planes, d, n, vsapi);
         }
 
         pthread_mutex_unlock(&d->lock);
