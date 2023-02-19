@@ -539,6 +539,7 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
     COLORM_PARAM(gamut_mode, Int)
     COLORM_PARAM(tone_mapping_mode, Int)
     COLORM_PARAM(tone_mapping_crosstalk, Float)
+    COLORM_PARAM(visualize_lut, Int)
 
     struct pl_peak_detect_params *peakDetectParams = malloc(sizeof(struct pl_peak_detect_params));
     *peakDetectParams = pl_peak_detect_default_params;

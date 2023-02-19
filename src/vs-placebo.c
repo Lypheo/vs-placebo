@@ -100,6 +100,7 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegiste
                             "tone_mapping_mode:int:opt;"
                             "tone_mapping_param:float:opt;tone_mapping_crosstalk:float:opt;"
                             "use_dovi:int:opt;"
+                            "visualize_lut:int:opt;"
                             "log_level:int:opt;", VSPlaceboTMCreate, 0, plugin);
 
     registerFunc("Shader", "clip:clip;shader:data:opt;width:int:opt;height:int:opt;chroma_loc:int:opt;matrix:int:opt;trc:int:opt;"
