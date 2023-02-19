@@ -95,19 +95,23 @@ bool vspl_resample_do_plane(struct priv *p, void *data, int w, int h, const VSAP
         if (!pl_shader_sample_polar(sh, src, &sampleFilterParams))
             vsapi->logMessage(mtCritical, "Failed dispatching scaler...\n");
     } else {
+        struct pl_sample_src src1 = *src, src2 = *src;
+        src1.new_w = src->tex->params.w;
+        src1.rect.x0 = 0;
+        src1.rect.x1 = src1.new_w;
+        src2.rect.y0 = 0;
+        src2.rect.y1 = src1.new_h;
+
         pl_shader tsh = pl_dispatch_begin(p->dp);
 
-        src->rect.x0 = 0;
-        src->rect.x1 = src->new_w;
-        if (!pl_shader_sample_ortho2(tsh, src, &sampleFilterParams)) {
+        if (!pl_shader_sample_ortho2(tsh, &src1, &sampleFilterParams)) {
             vsapi->logMessage(mtCritical, "Failed dispatching vertical pass!\n");
             pl_dispatch_abort(p->dp, &tsh);
         }
 
-        struct pl_sample_src src2 = *src;
         struct pl_tex_params *tex_params = pl_tex_params(
-            .w = src->tex->params.w,
-            .h = src->new_h,
+            .w = src1.new_w,
+            .h = src1.new_h,
             .renderable = true,
             .sampleable = true,
             .format = src->tex->params.format,
@@ -116,7 +120,6 @@ bool vspl_resample_do_plane(struct priv *p, void *data, int w, int h, const VSAP
         if (!pl_tex_recreate(p->gpu, &sep_fbo, tex_params))
             vsapi->logMessage(mtCritical, "failed creating intermediate texture!\n");
 
-        src2.tex = sep_fbo;
         if (!pl_dispatch_finish(p->dp, pl_dispatch_params (
             .target = sep_fbo,
             .shader = &tsh
@@ -125,8 +128,8 @@ bool vspl_resample_do_plane(struct priv *p, void *data, int w, int h, const VSAP
             return false;
         }
 
-        src2.rect.y0 = 0;
-        src2.rect.y1 = src2.new_h;
+        src2.tex = sep_fbo;
+        src2.scale = 1.0;
         if (!pl_shader_sample_ortho2(sh, &src2, &sampleFilterParams))
             vsapi->logMessage(mtCritical, "Failed dispatching horizontal pass! \n");
     }
