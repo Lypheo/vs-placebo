@@ -28,7 +28,7 @@ jobs:
           pacman -Syu --noconfirm
           pacman -S --noconfirm --needed git gyp mercurial subversion ninja cmake meson \
             ragel yasm nasm asciidoc enca gperf unzip p7zip gcc-multilib clang \
-            python-pip curl rustup cargo-c
+            python-pip curl openssl
 
           pip3 install rst2pdf mako jsonschema
           git config --global user.name "github-actions"
@@ -42,7 +42,7 @@ jobs:
 
       - name: Downloading source
         run: |
-          cmake -DTARGET_ARCH=x86_64-w64-mingw32 -DALWAYS_REMOVE_BUILDFILES=ON -DSINGLE_SOURCE_LOCATION=$PWD/src_packages -G Ninja -Bbuild64 -H.
+          cmake -DTARGET_ARCH=x86_64-w64-mingw32 -DALWAYS_REMOVE_BUILDFILES=ON -DSINGLE_SOURCE_LOCATION=$PWD/src_packages -DRUSTUP_LOCATION=$PWD/install_rustup -G Ninja -Bbuild64 -H.
           ninja -C build64 download || true
 
       - name: Building toolchain
@@ -82,16 +82,15 @@ jobs:
           path: release
 
       - name: Collecting logs
-        id: collect_logs
+        if: always()
         run: |
           mkdir -p build64_logs
           cp -fr $(find build64 -type f -iname "*-*.log") build64_logs || true
           7z a -m0=lzma2 -mx=9 -ms=on logs.7z build*logs
 
       - name: Uploading logs
-        id: upload_logs
-        continue-on-error: true
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@master
+        if: always()
         with:
           name: logs
           path: logs.7z
