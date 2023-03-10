@@ -31,12 +31,14 @@ For example, to map from [BT.2020, PQ] (HDR) to traditional [BT.709, BT.1886] (S
 - `src_max, src_min, dst_max, dst_min`: Source/target display levels, in nits (cd/m^2). Source can be derived from props if available.
 
 - `dynamic_peak_detection`: enables computation of signal stats to optimize HDR tonemapping quality. Enabled by default.
-- `smoothing_period, scene_threshold_low, scene_threshold_high`: peak detection params. See [here](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L85).
-- `gamut_mode, tone_mapping_function, tone_mapping_mode, tone_mapping_param, tone_mapping_crosstalk`:
- [Color mapping params](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L237).
+- `smoothing_period, scene_threshold_low, scene_threshold_high, percentile`: peak detection params. See [here](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L103).
+    - `percentile` only in v5.264.0+.
+- `gamut_mode, tone_mapping_function, tone_mapping_mode, tone_mapping_param, tone_mapping_crosstalk, metadata`:
+ [Color mapping params](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L261).
 - `tone_mapping_function_s`: Tone mapping function name, overwrites `tone_mapping_function` number.
 - `use_dovi`: Whether to use the Dolby Vision RPU for ST2086 metadata. Defaults to true when tonemapping from Dolby Vision.
 - `visualize_lut`: Display a (PQ-PQ) graph of the active tone-mapping LUT. See [mpv docs](https://mpv.io/manual/master/#options-tone-mapping-visualize).
+- `show_clipping`: Highlight hard-clipped pixels during tone-mapping
 
 For Dolby Vision support, FFmpeg 5.0 minimum and git ffms2 are required.
 
@@ -48,7 +50,10 @@ For Dolby Vision support, FFmpeg 5.0 minimum and git ffms2 are required.
     - `float PLSceneAvg`: the scene's average brightness.
 
     Requires `libplacebo` v5.246.0 or newer, otherwise ignored.  
-    If `use_dovi` is enabled, `scene_max` and `scene_avg` are derived from the Dolby Vision RPU L1 metadata instead of the props.
+    If `PLSceneMax` is per component, the metadata is set to `scene_max` and `scene_avg`.
+    If it's a single luminance value and v5.257.0+, sets `max_pq_y` and `avg_pq_y`.
+
+    If `use_dovi` is enabled, `max_pq_y` and `avg_pq_y` are derived from the Dolby Vision RPU L1 metadata instead of the props.
 
 &nbsp;
 

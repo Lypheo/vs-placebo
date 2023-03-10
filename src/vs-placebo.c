@@ -94,13 +94,15 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegiste
                             "dst_max:float:opt;dst_min:float:opt;"
                             "dynamic_peak_detection:int:opt;smoothing_period:float:opt;"
                             "scene_threshold_low:float:opt;scene_threshold_high:float:opt;"
+                            "percentile:float:opt;"
                             "intent:int:opt;"
                             "gamut_mode:int:opt;"
                             "tone_mapping_function:int:opt;tone_mapping_function_s:data:opt;"
                             "tone_mapping_mode:int:opt;"
                             "tone_mapping_param:float:opt;tone_mapping_crosstalk:float:opt;"
+                            "metadata:int:opt;"
                             "use_dovi:int:opt;"
-                            "visualize_lut:int:opt;"
+                            "visualize_lut:int:opt;show_clipping:int:opt;"
                             "log_level:int:opt;", VSPlaceboTMCreate, 0, plugin);
 
     registerFunc("Shader", "clip:clip;shader:data:opt;width:int:opt;height:int:opt;chroma_loc:int:opt;matrix:int:opt;trc:int:opt;"

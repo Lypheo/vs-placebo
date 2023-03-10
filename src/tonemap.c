@@ -276,7 +276,7 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
         }
 
 #if PL_API_VER >= 246
-        src_pl_csp->hdr.scene_avg = vsapi->propGetFloat(props, "PLSceneAvg", 0, &err);
+        int scene_avg = vsapi->propGetFloat(props, "PLSceneAvg", 0, &err);
 
         const int scene_max_len = vsapi->propNumElements(props, "PLSceneMax");
 
@@ -284,15 +284,22 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
             const double *prop_scene_max = vsapi->propGetFloatArray(props, "PLSceneMax", &err);
             if (prop_scene_max) {
                 if (scene_max_len == 1) {
+#if PL_API_VER >= 257
+                    src_pl_csp->hdr.avg_pq_y = pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, scene_avg);
+                    src_pl_csp->hdr.max_pq_y = pl_hdr_rescale(PL_HDR_NITS, PL_HDR_PQ, prop_scene_max[0]);
+#else
+                    src_pl_csp->hdr.scene_avg = scene_avg;
                     src_pl_csp->hdr.scene_max[0] = src_pl_csp->hdr.scene_max[1] = src_pl_csp->hdr.scene_max[2] = prop_scene_max[0];
+#endif // PL_API_VER >= 257
                 } else if (scene_max_len == 3) {
+                    src_pl_csp->hdr.scene_avg = scene_avg;
                     src_pl_csp->hdr.scene_max[0] = prop_scene_max[0];
                     src_pl_csp->hdr.scene_max[1] = prop_scene_max[1];
                     src_pl_csp->hdr.scene_max[2] = prop_scene_max[2];
                 }
             }
         }
-#endif
+#endif // PL_API_VER >= 246
 
         const double *primariesX = vsapi->propGetFloatArray(props, "MasteringDisplayPrimariesX", &err);
         const double *primariesY = vsapi->propGetFloatArray(props, "MasteringDisplayPrimariesY", &err);
@@ -382,12 +389,17 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
                         if (vdr_dm_data->dm_data.level1) {
                             const DoviExtMetadataBlockLevel1 *l1 = vdr_dm_data->dm_data.level1;
 
+#if PL_API_VER >= 257
+                            src_pl_csp->hdr.avg_pq_y = l1->avg_pq / 4095.0f;
+                            src_pl_csp->hdr.max_pq_y = l1->max_pq / 4095.0f;
+#else
                             src_pl_csp->hdr.scene_avg = pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, l1->avg_pq / 4095.0f);
 
                             const float max_luma = pl_hdr_rescale(PL_HDR_PQ, PL_HDR_NITS, l1->max_pq / 4095.0f);
                             src_pl_csp->hdr.scene_max[0] = src_pl_csp->hdr.scene_max[1] = src_pl_csp->hdr.scene_max[2] = max_luma;
+#endif // PL_API_VER >= 257
                         }
-#endif
+#endif // PL_API_VER >= 246
 
                         if (vdr_dm_data->dm_data.level6) {
                             const DoviExtMetadataBlockLevel6 *meta = vdr_dm_data->dm_data.level6;
@@ -539,7 +551,15 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
     COLORM_PARAM(gamut_mode, Int)
     COLORM_PARAM(tone_mapping_mode, Int)
     COLORM_PARAM(tone_mapping_crosstalk, Float)
+#if PL_API_VER >= 247
     COLORM_PARAM(visualize_lut, Int)
+#endif
+#if PL_API_VER >= 261
+    COLORM_PARAM(metadata, Int)
+#endif
+#if PL_API_VER >= 264
+    COLORM_PARAM(show_clipping, Int)
+#endif
 
     struct pl_peak_detect_params *peakDetectParams = malloc(sizeof(struct pl_peak_detect_params));
     *peakDetectParams = pl_peak_detect_default_params;
@@ -550,6 +570,9 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
     PEAK_PARAM(smoothing_period, Float)
     PEAK_PARAM(scene_threshold_low, Float)
     PEAK_PARAM(scene_threshold_high, Float)
+#if PL_API_VER >= 264
+    PEAK_PARAM(percentile, Float)
+#endif
 
     struct pl_color_space *src_pl_csp = malloc((sizeof(struct pl_color_space)));
     struct pl_color_space *dst_pl_csp = malloc((sizeof(struct pl_color_space)));
