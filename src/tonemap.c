@@ -276,7 +276,7 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
         }
 
 #if PL_API_VER >= 246
-        int scene_avg = vsapi->propGetFloat(props, "PLSceneAvg", 0, &err);
+        const double scene_avg = vsapi->propGetFloat(props, "PLSceneAvg", 0, &err);
 
         const int scene_max_len = vsapi->propNumElements(props, "PLSceneMax");
 
