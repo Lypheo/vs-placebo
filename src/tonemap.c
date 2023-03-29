@@ -38,8 +38,8 @@ typedef struct {
 
     pthread_mutex_t lock;
 
-    int64_t original_src_max;
-    int64_t original_src_min;
+    float original_src_max;
+    float original_src_min;
     
     bool is_subsampled;
     enum pl_chroma_location chromaLocation;
@@ -624,8 +624,8 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
             return;
     };
 
-    int64_t src_max = vsapi->propGetFloat(in, "src_max", 0, &err);
-    int64_t src_min = vsapi->propGetFloat(in, "src_min", 0, &err);
+    const float src_max = vsapi->propGetFloat(in, "src_max", 0, &err);
+    const float src_min = vsapi->propGetFloat(in, "src_min", 0, &err);
 
     src_pl_csp->hdr.max_luma = src_max;
     src_pl_csp->hdr.min_luma = src_min;
