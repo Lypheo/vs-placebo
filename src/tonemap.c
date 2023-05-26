@@ -153,12 +153,9 @@ bool vspl_tonemap_filter(TMData *tm_data, void *dst, struct pl_plane_data *src, 
         return false;
     }
 
-    pl_fmt out_fmt = p->tex_out[0]->params.format;
-
     // Download planes
     ok = pl_tex_download(p->gpu, pl_tex_transfer_params(
         .tex = p->tex_out[0],
-        .row_pitch = (src->row_stride / src->pixel_stride) * out_fmt->texel_size,
         .ptr = dst,
     ));
 
