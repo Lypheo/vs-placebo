@@ -1,97 +1,59 @@
-defaults:
-  run:
-    shell: bash
+name: windows build
 
 on:
   workflow_dispatch:
-
-name: vs-placebo build
+  push:
+    branches:
+      - main
 
 jobs:
-  build_vs_placebo:
-    name: Building vs-placebo
-    runs-on: ubuntu-latest
-    env:
-      CURL_RETRIES: "--connect-timeout 60 --retry 999 --retry-delay 5 --retry-all-errors"
-    container:
-      image: docker://archlinux:base-devel
-
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
     steps:
-      - name: Get current date and random hash
-        run: |
-          echo "short_date=$(date "+%Y%m%d")" >> $GITHUB_ENV
-          echo "random_hash=$(echo $RANDOM | md5sum | head -c 20)" >> $GITHUB_ENV
-
-      - name: Installing dependencies
-        run: |
-          echo -e "[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm --needed git gyp mercurial subversion ninja cmake meson \
-            ragel yasm nasm asciidoc enca gperf unzip p7zip gcc-multilib clang \
-            python-pip curl openssl
-
-          pip3 install rst2pdf mako jsonschema
-          git config --global user.name "github-actions"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config --global --add safe.directory $PWD
-
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
-          repository: quietvoid/mpv-winbuild-cmake
-          ref: vs-placebo-libdovi
-
-      - name: Downloading source
+          submodules: recursive
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            base-devel
+            mingw-w64-ucrt-x86_64-jq
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkg-config
+            mingw-w64-ucrt-x86_64-vapoursynth
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-spirv-tools
+            mingw-w64-ucrt-x86_64-spirv-cross
+            mingw-w64-ucrt-x86_64-vulkan
+            mingw-w64-ucrt-x86_64-vulkan-headers
+            mingw-w64-ucrt-x86_64-vulkan-loader
+            mingw-w64-ucrt-x86_64-libdovi
+            mingw-w64-ucrt-x86_64-lcms2
+            mingw-w64-ucrt-x86_64-shaderc
+      - name: Build libplacebo
+        working-directory: ./libplacebo
         run: |
-          cmake -DTARGET_ARCH=x86_64-w64-mingw32 -DALWAYS_REMOVE_BUILDFILES=ON -DSINGLE_SOURCE_LOCATION=$PWD/src_packages -DRUSTUP_LOCATION=$PWD/install_rustup -G Ninja -Bbuild64 -H.
-          ninja -C build64 download || true
-
-      - name: Building toolchain
-        id: build_toolchain
-        continue-on-error: true
-        run: ninja -C build64 gcc
-
-      - name: Update dependencies
-        id: update_deps
-        continue-on-error: true
+          meson setup build --buildtype release --default-library=static -Ddemos=false -Dprefix=$PWD/install
+          meson compile -vC build
+          meson install -C build
+      - name: Build vs-placebo
         run: |
-          ninja -C build64 update
-
-      - name: Building vs-placebo
-        id: build_vs_placebo
-        if: ${{ steps.build_toolchain.outcome == 'success' }}
-        continue-on-error: true
+          meson setup build --buildtype release
+          meson compile -vC build
+      - name: Export version
         run: |
-          ninja -C build64 vs-placebo
-
-      - name: Packaging vs-placebo
-        id: packaging_vs_placebo
-        if: ${{ steps.build_vs_placebo.outcome == 'success' }}
-        continue-on-error: true
-        run: |
-          mkdir -p release
-          mv build64/install/x86_64-w64-mingw32/lib64/vapoursynth/libvs_placebo.dll .
-          7z a ./release/libvs_placebo.zip libvs_placebo.dll
-          rm -f ./libvs_placebo.dll
-
-      - name: Uploading release
-        id: uploading_release
-        if: ${{ steps.packaging_vs_placebo.outcome == 'success' }}
+          echo "ARTIFACT_VERSION=$(meson introspect --projectinfo build | jq -r '.version')" >> $GITHUB_ENV
+      - name: Upload
         uses: actions/upload-artifact@v3
         with:
-          name: vs-placebo
-          path: release
-
-      - name: Collecting logs
-        if: always()
-        run: |
-          mkdir -p build64_logs
-          cp -fr $(find build64 -type f -iname "*-*.log") build64_logs || true
-          7z a -m0=lzma2 -mx=9 -ms=on logs.7z build*logs
-
-      - name: Uploading logs
-        uses: actions/upload-artifact@master
-        if: always()
-        with:
-          name: logs
-          path: logs.7z
-          retention-days: 1
+          name: vsplacebo-windows-${{ env.ARTIFACT_VERSION }}
+          path: |
+            build/libvs_placebo.dll
