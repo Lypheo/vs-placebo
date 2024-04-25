@@ -6,7 +6,7 @@ project('vs-placebo', ['c', 'cpp'],
 
 win32 = host_machine.system() == 'windows' or host_machine.system() == 'cygwin'
 
-placebo = dependency('libplacebo', required: true, version: '>=5.229.0', static: win32)
+placebo = dependency('libplacebo', required: true, version: '>=6.269.0', static: win32)
 vapoursynth_dep = dependency('vapoursynth', static: win32).partial_dependency(includes: true, compile_args: true)
 dovi = dependency('dovi', required: false)
 

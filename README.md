@@ -18,7 +18,7 @@ see the libplacebo header files.
 
 &nbsp;
 
-#### `placebo.Tonemap(clip clip[, int src_csp, int dst_csp, int dst_prim, float src_max, float src_min, float dst_max, float dst_min, int dynamic_peak_detection, float smoothing_period, float scene_threshold_low, scene_threshold_high, int tone_mapping_function, int tone_mapping_mode, float tone_mapping_param, float tone_mapping_crosstalk, bool use_dovi, bool visualize_lut])`
+#### `placebo.Tonemap(clip clip[, int src_csp, int dst_csp, int dst_prim, float src_max, float src_min, float dst_max, float dst_min, int dynamic_peak_detection, float smoothing_period, float scene_threshold_low, scene_threshold_high, int gamut_mapping, int tone_mapping_function, int tone_mapping_mode, float tone_mapping_param, float tone_mapping_crosstalk, bool use_dovi, bool visualize_lut])`
 
 Performs color mapping (which includes tonemapping from HDR to SDR, but can do a lot more).  
 Expects RGB48 or YUVxxxP16 input.  
@@ -29,10 +29,22 @@ See the `supported_colorspace` in `tonemap.c` for the valid src/dst colorspaces.
 For example, to map from [BT.2020, PQ] (HDR) to traditional [BT.709, BT.1886] (SDR), pass `src_csp=1, dst_csp=0`.
 - `dst_prim`: Target color primaries. See [pl_color_primaries](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/colorspace.h#L193) for valid values.
 - `src_max, src_min, dst_max, dst_min`: Source/target display levels, in nits (cd/m^2). Source can be derived from props if available.
-
 - `dynamic_peak_detection`: enables computation of signal stats to optimize HDR tonemapping quality. Enabled by default.
 - `smoothing_period, scene_threshold_low, scene_threshold_high, percentile`: peak detection params. See [here](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L103).
     - `percentile` only in v5.264.0+.
+- `gamut_mapping`: Gamut mapping function to use to handle out-of-gamut colors,
+including colors which are out-of-gamut as a consequence of tone mapping.
+Defaults to 1 (perceptual). The following options are available:
+    - 0 clip 
+    - 1 perceptual
+    - 2 softclip 
+    - 3 relative
+    - 4 saturation
+    - 5 absolute
+    - 6 desaturate
+    - 7 darken
+    - 8 highlight
+    - 9 linear
 - `tone_mapping_function, tone_mapping_mode, tone_mapping_param, tone_mapping_crosstalk, metadata`:
  [Color mapping params](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L261).
 - `tone_mapping_function_s`: Tone mapping function name, overwrites `tone_mapping_function` number.
