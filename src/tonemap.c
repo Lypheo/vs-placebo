@@ -545,7 +545,6 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
         if (err) colorMapParams->par = pl_color_map_default_params.par;
 
     COLORM_PARAM(intent, Int)
-    COLORM_PARAM(gamut_mode, Int)
     COLORM_PARAM(tone_mapping_mode, Int)
     COLORM_PARAM(tone_mapping_crosstalk, Float)
 #if PL_API_VER >= 247
