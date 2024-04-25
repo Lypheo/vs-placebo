@@ -95,7 +95,6 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegiste
                             "dynamic_peak_detection:int:opt;smoothing_period:float:opt;"
                             "scene_threshold_low:float:opt;scene_threshold_high:float:opt;"
                             "percentile:float:opt;"
-                            "intent:int:opt;"
                             "tone_mapping_function:int:opt;tone_mapping_function_s:data:opt;"
                             "tone_mapping_mode:int:opt;"
                             "tone_mapping_param:float:opt;tone_mapping_crosstalk:float:opt;"
