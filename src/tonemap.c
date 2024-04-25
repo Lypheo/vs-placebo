@@ -518,6 +518,12 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
     struct pl_color_map_params *colorMapParams = malloc(sizeof(struct pl_color_map_params));
     *colorMapParams = pl_color_map_default_params;
 
+    // Gamut mapping function
+    int64_t gamut_map_index = vsapi->propGetInt(in, "gamut_mapping", 0, &err);
+    if (!err && gamut_map_index >= 0 && gamut_map_index < pl_num_gamut_map_functions) {
+        colorMapParams->gamut_mapping = pl_gamut_map_functions[gamut_map_index];
+    }
+
     // Tone mapping function
     int64_t function_index = vsapi->propGetInt(in, "tone_mapping_function", 0, &err);
 
