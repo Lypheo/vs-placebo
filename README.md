@@ -18,7 +18,7 @@ see the libplacebo header files.
 
 &nbsp;
 
-#### `placebo.Tonemap(clip clip[, int src_csp, int dst_csp, int dst_prim, float src_max, float src_min, float dst_max, float dst_min, int dynamic_peak_detection, float smoothing_period, float scene_threshold_low, scene_threshold_high, int intent, int gamut_mode, int tone_mapping_function, int tone_mapping_mode, float tone_mapping_param, float tone_mapping_crosstalk, bool use_dovi, bool visualize_lut])`
+#### `placebo.Tonemap(clip clip[, int src_csp, int dst_csp, int dst_prim, float src_max, float src_min, float dst_max, float dst_min, int dynamic_peak_detection, float smoothing_period, float scene_threshold_low, scene_threshold_high, int intent, int tone_mapping_function, int tone_mapping_mode, float tone_mapping_param, float tone_mapping_crosstalk, bool use_dovi, bool visualize_lut])`
 
 Performs color mapping (which includes tonemapping from HDR to SDR, but can do a lot more).  
 Expects RGB48 or YUVxxxP16 input.  
@@ -33,7 +33,7 @@ For example, to map from [BT.2020, PQ] (HDR) to traditional [BT.709, BT.1886] (S
 - `dynamic_peak_detection`: enables computation of signal stats to optimize HDR tonemapping quality. Enabled by default.
 - `smoothing_period, scene_threshold_low, scene_threshold_high, percentile`: peak detection params. See [here](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L103).
     - `percentile` only in v5.264.0+.
-- `gamut_mode, tone_mapping_function, tone_mapping_mode, tone_mapping_param, tone_mapping_crosstalk, metadata`:
+- `tone_mapping_function, tone_mapping_mode, tone_mapping_param, tone_mapping_crosstalk, metadata`:
  [Color mapping params](https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/shaders/colorspace.h#L261).
 - `tone_mapping_function_s`: Tone mapping function name, overwrites `tone_mapping_function` number.
 - `use_dovi`: Whether to use the Dolby Vision RPU for ST2086 metadata. Defaults to true when tonemapping from Dolby Vision.
