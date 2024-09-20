@@ -83,7 +83,7 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegiste
 
     registerFunc("Resample", "clip:clip;width:int;height:int;filter:data:opt;clamp:float:opt;blur:float:opt;"
                              "taper:float:opt;radius:float:opt;param1:float:opt;param2:float:opt;"
-                             "sx:float:opt;sy:float:opt;antiring:float:opt;lut_entries:int:opt;cutoff:float:opt;"
+                             "src_width:float:opt;src_height:float:opt;sx:float:opt;sy:float:opt;antiring:float:opt;lut_entries:int:opt;cutoff:float:opt;"
                              "sigmoidize:int:opt;sigmoid_center:float:opt;sigmoid_slope:float:opt;linearize:int:opt;trc:int:opt;"
                              "log_level:int:opt;", VSPlaceboResampleCreate, 0, plugin);
 
