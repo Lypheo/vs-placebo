@@ -467,31 +467,15 @@ void VS_CC VSPlaceboResampleCreate(const VSMap *in, VSMap *out, void *useResampl
     sampleFilterParams->antiring = vsapi->propGetFloat(in, "antiring", 0, &err);
 
     const char *filter = vsapi->propGetData(in, "filter", 0, &err);
+    if (err) {
+        vsapi->logMessage(mtWarning, "Unspecified filter... selecting ewa_lanczos.\n");
+        filter = "ewa_lanczos";
+    }
 
-    if (!filter) filter = "ewa_lanczos";
-#define FILTER_ELIF(name) else if (strcmp(filter, #name) == 0) sampleFilterParams->filter = pl_filter_##name;
-    if (strcmp(filter, "spline16") == 0)
-        sampleFilterParams->filter = pl_filter_spline16;
-    FILTER_ELIF(spline36)
-    FILTER_ELIF(spline64)
-    FILTER_ELIF(box)
-    FILTER_ELIF(triangle)
-    FILTER_ELIF(gaussian)
-    FILTER_ELIF(sinc)
-    FILTER_ELIF(lanczos)
-    FILTER_ELIF(ginseng)
-    FILTER_ELIF(ewa_jinc)
-    FILTER_ELIF(ewa_ginseng)
-    FILTER_ELIF(ewa_hann)
-    FILTER_ELIF(bicubic)
-    FILTER_ELIF(catmull_rom)
-    FILTER_ELIF(mitchell)
-    FILTER_ELIF(robidoux)
-    FILTER_ELIF(robidouxsharp)
-    FILTER_ELIF(ewa_robidoux)
-    FILTER_ELIF(ewa_lanczos)
-    FILTER_ELIF(ewa_robidouxsharp)
-    else {
+    const struct pl_filter_config *filter_config = pl_find_filter_config(filter, PL_FILTER_SCALING);
+    if (filter_config) {
+        sampleFilterParams->filter = *filter_config;
+    } else {
         vsapi->logMessage(mtWarning, "Unknown filter... selecting ewa_lanczos.\n");
         sampleFilterParams->filter = pl_filter_ewa_lanczos;
     }
