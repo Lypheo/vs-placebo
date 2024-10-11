@@ -73,7 +73,7 @@ For Dolby Vision support, FFmpeg 5.0 minimum and git ffms2 are required.
 
 Input needs to be 8 or 16 bit Integer or 32 bit Float   
 
-- `filter`: See [the header](https://github.com/haasn/libplacebo/blob/210131146739e4e84d689f32c17a97b27a6550bd/src/include/libplacebo/filters.h#L187) for possible values (remove the “pl_filter” before the filter name, e.g. `filter="lanczos"`).  
+- `filter`: See [the header](https://github.com/haasn/libplacebo/blob/v7.349.0/src/include/libplacebo/filters.h#L268-L299) for possible values (remove the "pl_filter_" before the filter name, e.g. `filter="lanczos"`).  
 - `sx`, `sy`: Top left corner of the source region. Can be used for subpixel shifts
 - `clamp, taper, blur`: [Filter config](https://github.com/haasn/libplacebo/blob/885e89bccfb932d9e8c8659039ab6975e885e996/src/include/libplacebo/filters.h#L148).
 
