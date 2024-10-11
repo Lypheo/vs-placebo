@@ -69,11 +69,13 @@ For Dolby Vision support, FFmpeg 5.0 minimum and git ffms2 are required.
 
 &nbsp;
 
-#### `placebo.Resample(clip clip[, int width, int height, string filter = "ewa_lanczos", float radius, float clamp, float taper, float blur, float param1, float param2, float sx = 0.0, float sy = 0.0, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001, bool sigmoidize = 1, bool linearize = 1, float sigmoid_center = 0.75, float sigmoid_slope = 6.5, int trc = 1])`
+#### `placebo.Resample(clip clip[, int width, int height, string filter = "ewa_lanczos", float radius, float clamp, float taper, float blur, float param1, float param2, float src_width, float src_height, float sx = 0.0, float sy = 0.0, float antiring = 0.0, int lut_entries = 64, float cutoff = 0.001, bool sigmoidize = 1, bool linearize = 1, float sigmoid_center = 0.75, float sigmoid_slope = 6.5, int trc = 1])`
 
 Input needs to be 8 or 16 bit Integer or 32 bit Float   
 
-- `filter`: See [the header](https://github.com/haasn/libplacebo/blob/v7.349.0/src/include/libplacebo/filters.h#L268-L299) for possible values (remove the "pl_filter_" before the filter name, e.g. `filter="lanczos"`).  
+- `filter`: See [the header](https://github.com/haasn/libplacebo/blob/v7.349.0/src/include/libplacebo/filters.h#L268-L299) for possible values (remove the “pl_filter” before the filter name, e.g. `filter="lanczos"`).  
+- `src_width`, `src_height`: Dimensions of the source region. Defaults to the
+  dimensions of `clip`.
 - `sx`, `sy`: Top left corner of the source region. Can be used for subpixel shifts
 - `clamp, taper, blur`: [Filter config](https://github.com/haasn/libplacebo/blob/885e89bccfb932d9e8c8659039ab6975e885e996/src/include/libplacebo/filters.h#L148).
 

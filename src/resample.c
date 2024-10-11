@@ -17,6 +17,12 @@ typedef struct {
     void *vf;
     int width;
     int height;
+
+    /** Width of the source region. */
+    float src_width;
+
+    /** Height of the source region. */
+    float src_height;
     float src_x;
     float src_y;
     struct pl_sample_filter_params *sampleParams;
@@ -27,7 +33,7 @@ typedef struct {
     pthread_mutex_t lock;
 } ResampleData;
 
-bool vspl_resample_do_plane(struct priv *p, void *data, int w, int h, const VSAPI *vsapi, float sx, float sy)
+bool vspl_resample_do_plane(struct priv *p, void *data, int w, int h, float src_width, float src_height, const VSAPI *vsapi, float sx, float sy)
 {
     ResampleData *d = (ResampleData*) data;
     pl_shader sh = pl_dispatch_begin(p->dp);
@@ -83,8 +89,8 @@ bool vspl_resample_do_plane(struct priv *p, void *data, int w, int h, const VSAP
     struct pl_rect2df rect = {
         sx,
         sy,
-        p->tex_in[0]->params.w + sx,
-        p->tex_in[0]->params.h + sy,
+        src_width + sx,
+        src_height + sy,
     };
     src->tex = sample_fbo;
     src->rect = rect;
@@ -206,7 +212,7 @@ bool vspl_resample_reconfig(void *priv, struct pl_plane_data *data, int w, int h
     return true;
 }
 
-bool vspl_resample_filter(void *priv, VSFrameRef *dst, struct pl_plane_data *src, void *d, int w, int h, float sx, float sy, const VSAPI *vsapi, int planeIdx)
+bool vspl_resample_filter(void *priv, VSFrameRef *dst, struct pl_plane_data *src, void *d, int w, int h, float src_width, float src_height, float sx, float sy, const VSAPI *vsapi, int planeIdx)
 {
     struct priv *p = priv;
 
@@ -226,7 +232,7 @@ bool vspl_resample_filter(void *priv, VSFrameRef *dst, struct pl_plane_data *src
         return false;
     }
     // Process plane
-    if (!vspl_resample_do_plane(p, d, w, h, vsapi, sx, sy)) {
+    if (!vspl_resample_do_plane(p, d, w, h, src_width, src_height, vsapi, sx, sy)) {
         vsapi->logMessage(mtCritical, "Failed processing planes!\n");
         return false;
     }
@@ -249,6 +255,45 @@ bool vspl_resample_filter(void *priv, VSFrameRef *dst, struct pl_plane_data *src
     return true;
 }
 
+/** Recalculate aspect ratio frame properties. */
+void vspl_propagate_sar(
+    const VSMap *src_props,
+    VSMap *dst_props,
+    int width,
+    int height,
+    float src_width,
+    float src_height,
+    float dst_width,
+    float dst_height,
+    const VSAPI *vsapi
+) {
+    int64_t sar_num = 0;
+    int64_t sar_den = 0;
+
+    if (vsapi->propNumElements(src_props, "_SARNum") > 0)
+        sar_num = vsapi->propGetInt(src_props, "_SARNum", 0, NULL);
+    if (vsapi->propNumElements(src_props, "_SARDen") > 0)
+        sar_den = vsapi->propGetInt(src_props, "_SARDen", 0, NULL);
+
+    if (sar_num <= 0 || sar_den <= 0) {
+        vsapi->propDeleteKey(dst_props, "_SARNum");
+        vsapi->propDeleteKey(dst_props, "_SARDen");
+    } else {
+        if (!isnan(src_width) && src_width != width)
+            muldivRational(&sar_num, &sar_den, llround(src_width * 16), dst_width * 16);
+        else
+            muldivRational(&sar_num, &sar_den, width, dst_width);
+
+        if (!isnan(src_height) && src_height != height)
+            muldivRational(&sar_num, &sar_den, dst_height * 16, llround(src_height * 16));
+        else
+            muldivRational(&sar_num, &sar_den, dst_height, height);
+
+        vsapi->propSetInt(dst_props, "_SARNum", sar_num, 0);
+        vsapi->propSetInt(dst_props, "_SARDen", sar_den, 0);
+    }
+}
+
 static void VS_CC VSPlaceboResampleInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
     ResampleData *d = (ResampleData *) *instanceData;
     VSVideoInfo new_vi = (VSVideoInfo) *(d->vi);
@@ -266,6 +311,9 @@ static const VSFrameRef *VS_CC VSPlaceboResampleGetFrame(int n, int activationRe
         const VSFrameRef *frame = vsapi->getFrameFilter(n, d->node, frameCtx);
 
         const VSFormat *srcFmt = d->vi->format;
+        const float subsampling_w = 1 << srcFmt->subSamplingW;
+        const float subsampling_h = 1 << srcFmt->subSamplingH;
+
         VSFrameRef *dst = vsapi->newVideoFrame(srcFmt, d->width, d->height, frame, core);
 
         for (unsigned int i = 0; i < srcFmt->numPlanes; i++) {
@@ -281,20 +329,41 @@ static const VSFrameRef *VS_CC VSPlaceboResampleGetFrame(int n, int activationRe
                 .component_map[0] = 0,
             };
 
-            bool shift = srcFmt->colorFamily == cmYUV && srcFmt->subSamplingW == 1 && (i == 1 || i == 2);
-            float subsampling_shift = 0.25f - 0.25f * (float) d->vi->width / (float) d->width; // FIXME: support other subsampling ratios and chroma locations as well
-            float sx = (shift ? subsampling_shift : 0.f) + d->src_x * vsapi->getFrameWidth(frame, i)/d->vi->width;
-            float sy = d->src_y * vsapi->getFrameHeight(frame, i)/d->vi->height;
             int w = vsapi->getFrameWidth(dst, i), h = vsapi->getFrameHeight(dst, i);
+
+            // FIXME: support other chroma locations as well.
+            const float subsampling_shift_w = (0.5f * (1.0f - (float) w / (float) d->vi->width)) / subsampling_w;
+            const float subsampling_shift_h = 0.0;
+
+            const bool shift = srcFmt->colorFamily == cmYUV && (i == 1 || i == 2);
+            const float sx = shift ? subsampling_shift_w + d->src_x / subsampling_w : d->src_x;
+            const float sy = shift ? subsampling_shift_h + d->src_y / subsampling_h : d->src_y;
+
+            const float src_w = shift ? d->src_width / subsampling_w : d->src_width;
+            const float src_h = shift ? d->src_height / subsampling_h : d->src_height;
 
             pthread_mutex_lock(&d->lock);
 
             if (vspl_resample_reconfig(d->vf, &plane, w, h, vsapi)) {
-                vspl_resample_filter(d->vf, dst, &plane, d, w, h, sx, sy, vsapi, i);
+                vspl_resample_filter(d->vf, dst, &plane, d, w, h, src_w, src_h, sx, sy, vsapi, i);
             }
 
             pthread_mutex_unlock(&d->lock);
         }
+
+        const VSMap *src_props = vsapi->getFramePropsRO(frame);
+        VSMap *dst_props = vsapi->getFramePropsRW(dst);
+        vspl_propagate_sar(
+            src_props,
+            dst_props,
+            vsapi->getFrameWidth(frame, 0),
+            vsapi->getFrameHeight(frame, 0),
+            d->src_width,
+            d->src_height,
+            d->width,
+            d->height,
+            vsapi
+        );
 
         vsapi->freeFrame(frame);
         return dst;
@@ -349,6 +418,14 @@ void VS_CC VSPlaceboResampleCreate(const VSMap *in, VSMap *out, void *useResampl
     if (err)
         d.height = d.vi->height;
 
+    d.src_width = vsapi->propGetFloat(in, "src_width", 0, &err);
+    if (err)
+        d.src_width = d.vi->width;
+
+    d.src_height = vsapi->propGetFloat(in, "src_height", 0, &err);
+    if (err)
+        d.src_height = d.vi->height;
+
     d.src_x = vsapi->propGetFloat(in, "sx", 0, &err);
     d.src_y = vsapi->propGetFloat(in, "sy", 0, &err);
     d.linear = vsapi->propGetInt(in, "linearize", 0, &err);
@@ -399,7 +476,7 @@ void VS_CC VSPlaceboResampleCreate(const VSMap *in, VSMap *out, void *useResampl
     if (filter_config) {
         sampleFilterParams->filter = *filter_config;
     } else {
-        vsapi->logMessage(mtWarning, "Unkown filter... selecting ewa_lanczos.\n");
+        vsapi->logMessage(mtWarning, "Unknown filter... selecting ewa_lanczos.\n");
         sampleFilterParams->filter = pl_filter_ewa_lanczos;
     }
 
