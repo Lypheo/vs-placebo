@@ -439,9 +439,11 @@ static const VSFrameRef *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, 
         void *packed_dst = malloc(w * h * 2 * 3);
         pthread_mutex_lock(&tm_data->lock); // libplacebo isn’t thread-safe
 
+        pthread_mutex_lock(&vspl_vulkan_mutex);
         if (vspl_tonemap_reconfig(tm_data->vf, planes, vsapi)) {
             vspl_tonemap_filter(tm_data, packed_dst, planes, vsapi, src_repr, dst_repr);
         }
+        pthread_mutex_unlock(&vspl_vulkan_mutex);
 
         pthread_mutex_unlock(&tm_data->lock);
 

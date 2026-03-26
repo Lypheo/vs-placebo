@@ -10,6 +10,8 @@
 #include "resample.h"
 #include "shader.h"
 
+pthread_mutex_t vspl_vulkan_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 void *VSPlaceboInit(enum pl_log_level log_level) {
     struct priv *p = calloc(1, sizeof(struct priv));
     if (!p)

@@ -176,6 +176,8 @@ static const VSFrameRef *VS_CC VSPlaceboDebandGetFrame(int n, int activationReas
 
         pthread_mutex_lock(&dbd_data->lock); // libplacebo isn’t thread-safe
 
+        pthread_mutex_lock(&vspl_vulkan_mutex);
+
         struct priv *p = dbd_data->vf;
 
         int numPlanes = srcFmt->numPlanes;
@@ -226,6 +228,8 @@ static const VSFrameRef *VS_CC VSPlaceboDebandGetFrame(int n, int activationReas
         if (vspl_deband_do_image(dbd_data, &src_img, &dst_img, vsapi)) {
             vspl_deband_download_planes(dbd_data, vsapi, dst, data, &dst_img);
         }
+
+        pthread_mutex_unlock(&vspl_vulkan_mutex);
 
         pthread_mutex_unlock(&dbd_data->lock);
 

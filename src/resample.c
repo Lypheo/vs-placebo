@@ -343,11 +343,13 @@ static const VSFrameRef *VS_CC VSPlaceboResampleGetFrame(int n, int activationRe
             const float src_h = shift ? d->src_height / subsampling_h : d->src_height;
 
             pthread_mutex_lock(&d->lock);
+            pthread_mutex_lock(&vspl_vulkan_mutex);
 
             if (vspl_resample_reconfig(d->vf, &plane, w, h, vsapi)) {
                 vspl_resample_filter(d->vf, dst, &plane, d, w, h, src_w, src_h, sx, sy, vsapi, i);
             }
 
+            pthread_mutex_unlock(&vspl_vulkan_mutex);
             pthread_mutex_unlock(&d->lock);
         }
 

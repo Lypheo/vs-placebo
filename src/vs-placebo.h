@@ -1,12 +1,15 @@
 #ifndef VS_PLACEBO_LIBRARY_H
 #define VS_PLACEBO_LIBRARY_H
 
+#include <pthread.h>
 #include <libplacebo/dispatch.h>
 #include <libplacebo/shaders/sampling.h>
 #include <libplacebo/utils/upload.h>
 #include <libplacebo/vulkan.h>
 
 #include "config_vsplacebo.h"
+
+extern pthread_mutex_t vspl_vulkan_mutex;
 
 struct format {
     int num_comps;
