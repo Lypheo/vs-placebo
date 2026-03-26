@@ -670,5 +670,5 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
     tm_data = malloc(sizeof(d));
     *tm_data = d;
 
-    vsapi->createFilter(in, out, "Tonemap", VSPlaceboTMInit, VSPlaceboTMGetFrame, VSPlaceboTMFree, fmParallel, 0, tm_data, core);
+    vsapi->createFilter(in, out, "Tonemap", VSPlaceboTMInit, VSPlaceboTMGetFrame, VSPlaceboTMFree, fmSerial, 0, tm_data, core);
 }
