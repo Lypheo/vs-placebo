@@ -27,7 +27,6 @@ typedef  struct {
     struct pl_sigmoid_params *sigmoid_params;
     enum pl_color_transfer trc;
     bool linear;
-    pthread_mutex_t lock;
 } ShaderData;
 
 
@@ -262,7 +261,6 @@ static void VS_CC VSPlaceboShaderFree(void *instanceData, VSCore *core, const VS
     free(d->sampleParams);
     free(d->sigmoid_params);
     VSPlaceboUninit(d->vf);
-    pthread_mutex_destroy(&d->lock);
     free(d);
 }
 
@@ -271,11 +269,6 @@ void VS_CC VSPlaceboShaderCreate(const VSMap *in, VSMap *out, void *userData, VS
     ShaderData *data;
     int err;
     enum pl_log_level log_level;
-
-    if (pthread_mutex_init(&d.lock, NULL) != 0) {
-        vsapi->setError(out, "placebo.Shader: mutex init failed\n");
-        return;
-    }
 
     log_level = vsapi->propGetInt(in, "log_level", 0, &err);
     if (err)

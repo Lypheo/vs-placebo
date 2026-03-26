@@ -36,8 +36,6 @@ typedef struct {
     struct pl_color_space *src_pl_csp;
     struct pl_color_space *dst_pl_csp;
 
-    pthread_mutex_t lock;
-
     float original_src_max;
     float original_src_min;
     
@@ -483,7 +481,6 @@ static void VS_CC VSPlaceboTMFree(void *instanceData, VSCore *core, const VSAPI 
     free((void *) tm_data->renderParams->color_map_params);
     free(tm_data->renderParams);
 
-    pthread_mutex_destroy(&tm_data->lock);
     free(tm_data);
 }
 
@@ -492,12 +489,6 @@ void VS_CC VSPlaceboTMCreate(const VSMap *in, VSMap *out, void *userData, VSCore
     TMData *tm_data;
     int err;
     enum pl_log_level log_level;
-
-    if (pthread_mutex_init(&d.lock, NULL) != 0)
-    {
-        vsapi->setError(out, "placebo.Tonemap: mutex init failed\n");
-        return;
-    }
 
     log_level = vsapi->propGetInt(in, "log_level", 0, &err);
     if (err)

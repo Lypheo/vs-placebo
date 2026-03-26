@@ -30,7 +30,6 @@ typedef struct {
     struct pl_sigmoid_params *sigmoid_params;
     enum pl_color_transfer trc;
     bool linear;
-    pthread_mutex_t lock;
 } ResampleData;
 
 bool vspl_resample_do_plane(struct priv *p, void *data, int w, int h, float src_width, float src_height, const VSAPI *vsapi, float sx, float sy)
@@ -380,7 +379,6 @@ static void VS_CC VSPlaceboResampleFree(void *instanceData, VSCore *core, const 
     free(d->sampleParams);
     free(d->sigmoid_params);
     VSPlaceboUninit(d->vf);
-    pthread_mutex_destroy(&d->lock);
     free(d);
 }
 
@@ -389,12 +387,6 @@ void VS_CC VSPlaceboResampleCreate(const VSMap *in, VSMap *out, void *useResampl
     ResampleData *data;
     int err;
     enum pl_log_level log_level;
-
-    if (pthread_mutex_init(&d.lock, NULL) != 0)
-    {
-        vsapi->setError(out, "placebo.Resample: mutex init failed\n");
-        return;
-    }
 
     log_level = vsapi->propGetInt(in, "log_level", 0, &err);
     if (err)

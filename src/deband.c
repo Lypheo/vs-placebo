@@ -16,8 +16,6 @@ typedef struct {
     int dither;
     struct pl_render_params *render_params;
     uint8_t frame_index;
-
-    pthread_mutex_t lock;
 } DebandData;
 
 bool vspl_deband_do_image(DebandData *dbd_data, struct pl_frame *src_img, struct pl_frame *dst_img, const VSAPI *vsapi)
@@ -243,7 +241,6 @@ static void VS_CC VSPlaceboDebandFree(void *instanceData, VSCore *core, const VS
     free((void *) d->render_params->dither_params);
     free((void *) d->render_params->deband_params);
     free(d->render_params);
-    pthread_mutex_destroy(&d->lock);
     free(d);
 }
 
@@ -252,12 +249,6 @@ void VS_CC VSPlaceboDebandCreate(const VSMap *in, VSMap *out, void *userData, VS
     DebandData *data;
     int err;
     enum pl_log_level log_level;
-
-    if (pthread_mutex_init(&d.lock, NULL) != 0)
-    {
-        vsapi->setError(out, "placebo.Deband: mutex init failed!");
-        return;
-    }
 
     log_level = vsapi->propGetInt(in, "log_level", 0, &err);
     if (err)
