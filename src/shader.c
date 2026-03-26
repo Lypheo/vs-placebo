@@ -223,7 +223,6 @@ static const VSFrameRef *VS_CC VSPlaceboShaderGetFrame(int n, int activationReas
 
         void *packed_dst = malloc(d->width * d->height * 2 * 3);
 
-        pthread_mutex_lock(&d->lock);
         pthread_mutex_lock(&vspl_vulkan_mutex);
 
         if (vspl_shader_reconfig(d->vf, planes, vsapi, d)) {
@@ -231,7 +230,6 @@ static const VSFrameRef *VS_CC VSPlaceboShaderGetFrame(int n, int activationReas
         }
 
         pthread_mutex_unlock(&vspl_vulkan_mutex);
-        pthread_mutex_unlock(&d->lock);
 
         struct p2p_buffer_param pack_params = {
             .width = d->width,

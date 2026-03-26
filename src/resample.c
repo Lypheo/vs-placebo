@@ -342,7 +342,6 @@ static const VSFrameRef *VS_CC VSPlaceboResampleGetFrame(int n, int activationRe
             const float src_w = shift ? d->src_width / subsampling_w : d->src_width;
             const float src_h = shift ? d->src_height / subsampling_h : d->src_height;
 
-            pthread_mutex_lock(&d->lock);
             pthread_mutex_lock(&vspl_vulkan_mutex);
 
             if (vspl_resample_reconfig(d->vf, &plane, w, h, vsapi)) {
@@ -350,7 +349,6 @@ static const VSFrameRef *VS_CC VSPlaceboResampleGetFrame(int n, int activationRe
             }
 
             pthread_mutex_unlock(&vspl_vulkan_mutex);
-            pthread_mutex_unlock(&d->lock);
         }
 
         const VSMap *src_props = vsapi->getFramePropsRO(frame);

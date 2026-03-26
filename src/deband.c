@@ -174,8 +174,6 @@ static const VSFrameRef *VS_CC VSPlaceboDebandGetFrame(int n, int activationReas
         };
         struct pl_frame dst_img = src_img;
 
-        pthread_mutex_lock(&dbd_data->lock); // libplacebo isn’t thread-safe
-
         pthread_mutex_lock(&vspl_vulkan_mutex);
 
         struct priv *p = dbd_data->vf;
@@ -230,8 +228,6 @@ static const VSFrameRef *VS_CC VSPlaceboDebandGetFrame(int n, int activationReas
         }
 
         pthread_mutex_unlock(&vspl_vulkan_mutex);
-
-        pthread_mutex_unlock(&dbd_data->lock);
 
         vsapi->freeFrame(frame);
         return dst;
