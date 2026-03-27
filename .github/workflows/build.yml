@@ -134,7 +134,6 @@ jobs:
           meson compile -vC build
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v4.1.0
-        if: ${{ github.event_name == 'push' }}
         with:
           subject-path: build/libvs_placebo.dll
       - name: Export version
