@@ -1,0 +1,6 @@
+
+option('r73-compat',
+  type: 'boolean',
+  value: false,
+  description: 'Use VapourSynth R73 compatible install directory'
+)
