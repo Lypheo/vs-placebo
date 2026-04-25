@@ -34,3 +34,6 @@ Issues = "https://github.com/Lypheo/vs-placebo/issues"
 
 [tool.meson-python.wheel]
 exclude = ["*.dll.a", "*.lib"]
+
+[tool.meson-python.args]
+install = ['--skip-subprojects']
