@@ -1,0 +1,58 @@
+[build-system]
+requires = ["meson-python", "VapourSynth>=74"]
+build-backend = "mesonpy"
+
+[project]
+name = "vs-placebo"
+description = "A VapourSynth plugin interface to libplacebo"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "LGPL-2.1"
+authors = [
+    {name = "Lypheo"},
+    {name = "quietvoid", email = "tcChlisop0@gmail.com"},
+    {name = "sgt0"}
+]
+keywords = ["video"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Plugins",
+    "Natural Language :: English",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX",
+    "Operating System :: Unix",
+    "Programming Language :: C",
+    "Topic :: Multimedia :: Video",
+]
+dependencies = ["VapourSynth>=74"]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/Lypheo/vs-placebo.git"
+Issues = "https://github.com/Lypheo/vs-placebo/issues"
+
+[tool.meson-python.wheel]
+exclude = ["*.dll.a", "*.lib"]
+
+[tool.meson-python.args]
+install = ['--skip-subprojects']
+
+[tool.cibuildwheel]
+build = "cp314-*"
+build-frontend = "uv"
+
+[tool.cibuildwheel.linux]
+before-all = ["./cibw/before_all_linux.sh"]
+
+[tool.cibuildwheel.linux.environment]
+VULKAN_SDK_VERSION="1.4.341.0"
+SHADERC_VERSION="2026.1"
+LIBPLACEBO_TAG="v7.360.1"
+LIBDOVI_TAG="libdovi-3.3.2"
+VULKAN_SDK_TAG="vulkan-sdk-${VULKAN_SDK_VERSION}"
+SHADERC_TAG="v${SHADERC_VERSION}"
+
+[tool.cibuildwheel.macos]
+environment = { MACOSX_DEPLOYMENT_TARGET="15" }
+before-all = ["./cibw/before_all_macos.sh"]

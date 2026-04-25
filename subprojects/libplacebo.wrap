@@ -1,0 +1,5 @@
+[wrap-git]
+url = https://github.com/haasn/libplacebo.git
+revision = v7.360.1
+depth = 1
+clone-recursive = true

@@ -1,95 +1,52 @@
 name: Build
 
-on: [workflow_dispatch]
-
-permissions:
-  attestations: write
-  contents: read
-  id-token: write
-
-env:
-  LIBPLACEBO_TAG: v7.360.1
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-24.04
+  build-non-windows-wheel:
+    strategy:
+      matrix:
+        include:
+          - arch: linux_x86_64
+            runs-on: ubuntu-latest
+          - arch: linux_aarch64
+            runs-on: ubuntu-24.04-arm
+          - arch: macosx_x86_64
+            runs-on: macos-15-intel
+          - arch: macosx_arm64
+            runs-on: macos-15
+      fail-fast: false
+
+    runs-on: ${{ matrix.runs-on }}
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
-      - name: Setup Python
-        uses: actions/setup-python@v6.2.0
+      - uses: pypa/cibuildwheel@v3.4.1
         with:
-          python-version: "3.14.3"
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7.6.0
-      - name: Install Python dependencies
+          output-dir: dist
+          extras: uv
+
+      - name: Fix tag
         run: |
-          uv tool install meson
-          uv tool install ninja
+          cd dist
+          for whl in *.whl; do
+            pipx run wheel tags --remove --python-tag py3 --abi-tag none $whl
+          done
 
-      - name: Install APT dependencies
-        run: |
-          wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null
-          echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ jammy main' | sudo tee /etc/apt/sources.list.d/kitware.list >/dev/null
-
-          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc
-          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
-
-          sudo apt update
-          sudo apt install -y cmake glslang-dev shaderc vulkan-headers
-
-      - name: Checkout SPIRV
-        uses: actions/checkout@v6.0.2
+      - uses: actions/upload-artifact@v7
         with:
-          repository: KhronosGroup/SPIRV-Cross
-          ref: sdk-1.3.236.0
-          path: temp/SPIRV-Cross
-      - name: Install SPIRV
-        working-directory: ./temp/SPIRV-Cross
-        run: |
-          cmake -H. -Bbuild -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DSPIRV_CROSS_SHARED=ON -DSPIRV_CROSS_CLI=OFF \
-            -DSPIRV_CROSS_ENABLE_TESTS=OFF ..
-          ninja -Cbuild
-          sudo $(which ninja) -Cbuild install
+          name: vs-placebo-${{ matrix.arch }}
+          path: dist
 
-      - name: Checkout VapourSynth
-        uses: actions/checkout@v6.0.2
-        with:
-          repository: vapoursynth/vapoursynth
-          ref: R68
-          path: vapoursynth
-      - name: Install VapourSynth
-        run: |
-          git clone https://bitbucket.org/the-sekrit-twc/zimg.git --depth 1 --recurse-submodules --shallow-submodules
-          pushd zimg
-          ./autogen.sh
-          ./configure --prefix=/usr
-          sudo make install -j$(nproc)
-          popd
-
-          pushd vapoursynth
-          ./autogen.sh
-          ./configure --prefix=/usr --disable-python-module --disable-vsscript
-          sudo make install -j$(nproc)
-
-      - name: Setup libplacebo subproject
-        uses: actions/checkout@v6
-        with:
-          repository: haasn/libplacebo
-          ref: ${{ env.LIBPLACEBO_TAG }}
-          path: 'subprojects/libplacebo'
-          submodules: recursive
-
-      - name: Build vs-placebo
-        run: |
-          meson setup build --buildtype release -Dlibplacebo:demos=false -Dlibplacebo:glslang=enabled
-          meson compile -vC build
-
-  build-windows:
+  build-windows-wheel:
     runs-on: windows-latest
     defaults:
       run:
@@ -100,47 +57,68 @@ jobs:
         with:
           submodules: recursive
       - name: Setup MSYS2
-        uses: msys2/setup-msys2@v2.27.0
+        uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
+          update: true
           install: >-
             base-devel
+            mingw-w64-ucrt-x86_64-git
             mingw-w64-ucrt-x86_64-jq
             mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-pkg-config
+            mingw-w64-ucrt-x86_64-python-build
+            mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-vapoursynth
             mingw-w64-ucrt-x86_64-meson
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-spirv-tools
             mingw-w64-ucrt-x86_64-spirv-cross
-            mingw-w64-ucrt-x86_64-vulkan
             mingw-w64-ucrt-x86_64-vulkan-headers
             mingw-w64-ucrt-x86_64-vulkan-loader
             mingw-w64-ucrt-x86_64-libdovi
             mingw-w64-ucrt-x86_64-lcms2
             mingw-w64-ucrt-x86_64-shaderc
-
-      - name: Setup libplacebo subproject
-        uses: actions/checkout@v6
-        with:
-          repository: haasn/libplacebo
-          ref: ${{ env.LIBPLACEBO_TAG }}
-          path: 'subprojects/libplacebo'
-          submodules: recursive
+            mingw-w64-ucrt-x86_64-uv
 
       - name: Build vs-placebo
         run: |
-          meson setup build --buildtype release --prefer-static --default-library=static -Dcpp_link_args='-static' -Dlibplacebo:demos=false -Dlibplacebo:glslang=enabled
-          meson compile -vC build
-      - name: Attest build provenance
-        uses: actions/attest-build-provenance@v4.1.0
-        with:
-          subject-path: build/libvs_placebo.dll
-      - name: Export version
+          : # FIXME: uv does not want to work with subprojects
+          python -m build --wheel -Csetup-args="--default-library=static" \
+            -Csetup-args="-Dprefer_static=true" \
+            -Csetup-args="-Dlibplacebo:demos=false" \
+            -Csetup-args="-Dlibplacebo:glslang=enabled"
+
+      - name: Fix tag
         run: |
-          echo "ARTIFACT_VERSION=$(meson introspect --projectinfo build | jq -r '.version')" >> $GITHUB_ENV
-      - name: Upload
-        uses: actions/upload-artifact@v7.0.0
+          cd dist
+          for whl in *.whl; do
+            uvx wheel tags --remove --python-tag py3 --abi-tag none --platform-tag win_amd64 $whl
+          done
+
+      - name: Build sdist
+        run: python -m build --sdist
+
+      - uses: actions/upload-artifact@v7
         with:
-          name: vsplacebo-windows-${{ env.ARTIFACT_VERSION }}
-          path: build/libvs_placebo.dll
+          name: vs-placebo-sdist
+          path: dist/*.tar.gz
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vs-placebo-win_amd64
+          path: dist/*.whl
+
+  publish:
+    permissions:
+      id-token: write
+    needs: [build-non-windows-wheel, build-windows-wheel]
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/download-artifact@v8
+      with:
+        path: dist
+        merge-multiple: true
+
+    - uses: pypa/gh-action-pypi-publish@release/v1
