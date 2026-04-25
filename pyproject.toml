@@ -37,3 +37,22 @@ exclude = ["*.dll.a", "*.lib"]
 
 [tool.meson-python.args]
 install = ['--skip-subprojects']
+
+[tool.cibuildwheel]
+build = "cp314-*"
+build-frontend = "uv"
+
+[tool.cibuildwheel.linux]
+before-all = ["./cibw/before_all_linux.sh"]
+
+[tool.cibuildwheel.linux.environment]
+VULKAN_SDK_VERSION="1.4.341.0"
+SHADERC_VERSION="2026.1"
+LIBPLACEBO_TAG="v7.360.1"
+LIBDOVI_TAG="libdovi-3.3.2"
+VULKAN_SDK_TAG="vulkan-sdk-${VULKAN_SDK_VERSION}"
+SHADERC_TAG="v${SHADERC_VERSION}"
+
+[tool.cibuildwheel.macos]
+environment = { MACOSX_DEPLOYMENT_TARGET="15" }
+before-all = ["./cibw/before_all_macos.sh"]

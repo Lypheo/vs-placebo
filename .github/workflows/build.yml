@@ -7,10 +7,45 @@ on:
   pull_request:
   workflow_dispatch:
 
-env:
-  LIBPLACEBO_TAG: v7.360.1
-
 jobs:
+  build-non-windows-wheel:
+    strategy:
+      matrix:
+        include:
+          - arch: linux_x86_64
+            runs-on: ubuntu-latest
+          - arch: linux_aarch64
+            runs-on: ubuntu-24.04-arm
+          - arch: macosx_x86_64
+            runs-on: macos-15-intel
+          - arch: macosx_arm64
+            runs-on: macos-15
+      fail-fast: false
+
+    runs-on: ${{ matrix.runs-on }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: pypa/cibuildwheel@v3.4.1
+        with:
+          output-dir: dist
+          extras: uv
+
+      - name: Fix tag
+        run: |
+          cd dist
+          for whl in *.whl; do
+            pipx run wheel tags --remove --python-tag py3 --abi-tag none $whl
+          done
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vs-placebo-${{ matrix.arch }}
+          path: dist
+
   build-windows-wheel:
     runs-on: windows-latest
     defaults:
