@@ -1,0 +1,9 @@
+[wrap-file]
+directory = libp2p-f50288b0c8db2cb14bb98fc25a5f056609d03652
+source_url = https://github.com/sekrit-twc/libp2p/archive/f50288b0c8db2cb14bb98fc25a5f056609d03652.tar.gz
+source_filename = libp2p.tar.gz
+source_hash = 37b14be5b1108268e55aa4fbaf838c287018ecc5b58e15efdfe064916afc44e9
+patch_directory = libp2p-f50288b0c8db2cb14bb98fc25a5f056609d03652
+
+[provide]
+dependency_names = libp2p

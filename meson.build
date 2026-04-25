@@ -65,16 +65,24 @@ configure_file(
   configuration: config_vsplacebo,
 )
 
-p2p = static_library('p2p', ['libp2p/p2p_api.cpp', 'libp2p/v210.cpp'], pic: true)
+libp2p = subproject('libp2p')
+p2p_static = libp2p.get_variable('libp2p')
+p2p_inc_dirs = libp2p.get_variable('p2p_inc_dirs')
+
+link_with_list = [p2p_static]
+
+if libp2p.get_variable('simd_enabled')
+  link_with_list += libp2p.get_variable('libp2p_simd')
+endif
 
 sources = []
 subdir('src')
 
 shared_module('vs_placebo', sources,
   dependencies: deps,
-  link_with: [p2p],
+  link_with: link_with_list,
   name_prefix: 'lib',
-  include_directories: incdir,
+  include_directories: [incdir, p2p_inc_dirs],
   install: true,
   install_dir: install_dir,
 )

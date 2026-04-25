@@ -1,4 +1,3 @@
-
 option('r73-compat',
   type: 'boolean',
   value: false,

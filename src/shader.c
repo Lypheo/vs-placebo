@@ -6,7 +6,7 @@
 
 #include <VapourSynth4.h>
 
-#include "libp2p/p2p_api.h"
+#include "p2p_api.h"
 #include <libplacebo/shaders/custom.h>
 #include <libplacebo/colorspace.h>
 

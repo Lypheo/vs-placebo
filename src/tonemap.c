@@ -7,8 +7,7 @@
 
 #include <VapourSynth4.h>
 
-#include "libp2p/p2p_api.h"
-
+#include "p2p_api.h"
 #include "vs-placebo.h"
 
 #ifdef HAVE_DOVI

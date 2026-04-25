@@ -1,0 +1,5 @@
+option('simd',
+  type: 'boolean',
+  value: false,
+  description: 'Use SIMD version of libp2p, x86 only'
+)
