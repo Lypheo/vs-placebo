@@ -105,11 +105,15 @@ jobs:
           path: dist/*.whl
 
   publish:
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    needs: [build-non-windows-wheel, build-windows-wheel]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/vs-placebo
+
     permissions:
       id-token: write
-    needs: [build-non-windows-wheel, build-windows-wheel]
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
-    runs-on: ubuntu-latest
 
     steps:
     - uses: actions/download-artifact@v8
@@ -118,3 +122,23 @@ jobs:
         merge-multiple: true
 
     - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-to-testpy:
+    needs: [build-non-windows-wheel, build-windows-wheel]
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://pypi.org/p/vs-placebo
+
+    permissions:
+      id-token: write
+
+    steps:
+    - uses: actions/download-artifact@v8
+      with:
+        path: dist
+        merge-multiple: true
+
+    - uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        repository-url: https://test.pypi.org/legacy/
