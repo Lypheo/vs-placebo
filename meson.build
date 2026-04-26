@@ -9,11 +9,20 @@ win32 = host_machine.system() == 'windows' or host_machine.system() == 'cygwin'
 static_deps = win32 or (get_option('default_library') == 'static' and get_option('prefer_static'))
 
 if static_deps
+  # Link everything statically
+  add_project_link_arguments(['-static'], language: ['c', 'cpp'])
+
   # Use static versions of these libraries
   shaderc_combined = dependency('shaderc_combined')
   meson.override_dependency('shaderc', shaderc_combined)
   spirv_cross_c = dependency('spirv-cross-c')
   meson.override_dependency('spirv-cross-c-shared', spirv_cross_c)
+
+  # Vulkan Loader cannot be statically linked
+  vulkan_lib = cc.find_library('vulkan-1', required: false)
+  if vulkan_lib.found()
+    meson.override_dependency('vulkan', declare_dependency(link_args: ['-Wl,-Bdynamic,-lvulkan-1,-Bstatic']))
+  endif
 endif
 
 add_project_arguments(
