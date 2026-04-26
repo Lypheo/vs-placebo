@@ -1,7 +1,7 @@
 project('vs-placebo', ['c', 'cpp'],
   default_options: ['buildtype=release', 'b_ndebug=if-release', 'c_std=c17', 'cpp_std=c++20'],
   meson_version: '>=1.4.0',
-  version: '2.0.1'
+  version: '2.0.2'
 )
 
 cc = meson.get_compiler('c')
