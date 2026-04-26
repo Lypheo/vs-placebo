@@ -1,5 +1,8 @@
 # vs-placebo
 
+[![build](https://github.com/Lypheo/vs-placebo/actions/workflows/build.yml/badge.svg)](https://github.com/Lypheo/vs-placebo/actions/workflows/build.yml)
+![PyPI - Version](https://img.shields.io/pypi/v/vs-placebo)
+
 A VapourSynth plugin interface to [libplacebo](https://code.videolan.org/videolan/libplacebo).
 
 ## API
