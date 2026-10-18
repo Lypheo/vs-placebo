@@ -15,10 +15,9 @@ typedef struct {
     unsigned int planes;
     int dither;
     struct pl_render_params *render_params;
-    uint8_t frame_index;
 } DebandData;
 
-bool vspl_deband_do_image(DebandData *dbd_data, struct pl_frame *src_img, struct pl_frame *dst_img, VSCore *core, const VSAPI *vsapi)
+bool vspl_deband_do_image(DebandData *dbd_data, int n, struct pl_frame *src_img, struct pl_frame *dst_img, VSCore *core, const VSAPI *vsapi)
 {
     struct priv *p = dbd_data->vf;
     bool ok = true;
@@ -27,7 +26,7 @@ bool vspl_deband_do_image(DebandData *dbd_data, struct pl_frame *src_img, struct
         pl_shader sh = pl_dispatch_begin(p->dp);
         pl_shader_reset(sh, pl_shader_params(
             .gpu = p->gpu,
-            .index = dbd_data->frame_index++,
+            .index = (uint8_t) (n * src_img->num_planes + i),
         ));
 
         struct pl_sample_src *src = pl_sample_src(
@@ -215,7 +214,7 @@ static const VSFrame *VS_CC VSPlaceboDebandGetFrame(int n, int activationReason,
 
         dst_img.num_planes = src_img.num_planes;
 
-        if (vspl_deband_do_image(dbd_data, &src_img, &dst_img, core, vsapi)) {
+        if (vspl_deband_do_image(dbd_data, n, &src_img, &dst_img, core, vsapi)) {
             vspl_deband_download_planes(dbd_data, core, vsapi, dst, data, &dst_img);
         }
 
@@ -291,7 +290,6 @@ void VS_CC VSPlaceboDebandCreate(const VSMap *in, VSMap *out, void *userData, VS
     render_params->deband_params = debandParams;
 
     d.render_params = render_params;
-    d.frame_index = 0;
 
     data = malloc(sizeof(d));
     *data = d;
