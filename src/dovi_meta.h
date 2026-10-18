@@ -17,7 +17,7 @@ static struct pl_dovi_metadata *create_dovi_meta(DoviRpuOpaque *rpu, const DoviR
         goto skip_mapping;
 
     const uint8_t bl_bit_depth = hdr->bl_bit_depth_minus8 + 8;
-    const float coef_scale_d = 1.0f / (1ULL << hdr->coefficient_log2_denom);
+    const float coef_scale = 1.0f / (1ULL << hdr->coefficient_log2_denom);
 
     for (int c = 0; c < 3; c++) {
         const DoviReshapingCurve curve = mapping->curves[c];
@@ -29,7 +29,11 @@ static struct pl_dovi_metadata *create_dovi_meta(DoviRpuOpaque *rpu, const DoviR
         uint16_t pivot = 0;
         for (int pivot_idx = 0; pivot_idx < cmp->num_pivots; pivot_idx++) {
             pivot += curve.pivots.data[pivot_idx];
+#if PL_API_VER >= 387
+            cmp->pivots[pivot_idx] = (float) pivot / (1 << bl_bit_depth);
+#else
             cmp->pivots[pivot_idx] = (float) pivot / ((1 << bl_bit_depth) - 1);
+#endif
         }
 
         for (int i = 0; i < cmp->num_pivots - 1; i++) {
@@ -41,21 +45,21 @@ static struct pl_dovi_metadata *create_dovi_meta(DoviRpuOpaque *rpu, const DoviR
                 for (int k = 0; k <= poly_curve->poly_order_minus1.data[i] + 1; k++) {
                     int64_t ipart = poly_curve->poly_coef_int.list[i]->data[k];
                     uint64_t fpart = poly_curve->poly_coef.list[i]->data[k];
-                    cmp->poly_coeffs[i][k] = ipart + coef_scale_d * fpart;
+                    cmp->poly_coeffs[i][k] = ipart + coef_scale * fpart;
                 }
             } else if (curve.mmr) {
                 const DoviMMRCurve *mmr_curve = curve.mmr;
 
                 int64_t ipart = mmr_curve->mmr_constant_int.data[i];
                 uint64_t fpart = mmr_curve->mmr_constant.data[i];
-                cmp->mmr_constant[i] = ipart + coef_scale_d * fpart;
+                cmp->mmr_constant[i] = ipart + coef_scale * fpart;
                 cmp->mmr_order[i] = mmr_curve->mmr_order_minus1.data[i] + 1;
 
                 for (int j = 0; j < cmp->mmr_order[i]; j++) {
                     for (int k = 0; k < 7; k++) {
                         ipart = mmr_curve->mmr_coef_int.list[i]->list[j]->data[k];
                         fpart = mmr_curve->mmr_coef.list[i]->list[j]->data[k];
-                        cmp->mmr_coeffs[i][j][k] = ipart + coef_scale_d * fpart;
+                        cmp->mmr_coeffs[i][j][k] = ipart + coef_scale * fpart;
                     }
                 }
             }
@@ -70,28 +74,42 @@ static struct pl_dovi_metadata *create_dovi_meta(DoviRpuOpaque *rpu, const DoviR
                            mapping->nlq_method_idc == 0; // LINEAR_DZ NLQ
 
     if (dovi_meta.nlq_active && mapping->nlq) {
+        const DoviRpuDataNlq *src = mapping->nlq;
+
+#if PL_API_VER < 387
         const uint8_t el_bit_depth = hdr->el_bit_depth_minus8 + 8;
         const float el_scale = 1.0f / ((1 << el_bit_depth) - 1);
+        const double slope_scale = ((1ULL << el_bit_depth) - 1) * coef_scale;
+#endif
 
-        const double slope_scale_d = ((1ULL << el_bit_depth) - 1) * coef_scale_d;
-
-        const DoviRpuDataNlq *src = mapping->nlq;
         for (int c = 0; c < 3; c++) {
             struct pl_dovi_nlq_data *dst = &dovi_meta.nlq[c];
-
-            uint64_t slope_ipart = src->linear_deadzone_slope_int[c];
-            uint64_t slope_fpart = src->linear_deadzone_slope[c];
-            uint64_t thr_ipart = src->linear_deadzone_threshold_int[c];
-            uint64_t thr_fpart = src->linear_deadzone_threshold[c];
-
-            const double S = (slope_ipart << hdr->coefficient_log2_denom) | slope_fpart;
-            const double T = (thr_ipart << hdr->coefficient_log2_denom) | thr_fpart;
+#if PL_API_VER < 387
+            const double S = (src->linear_deadzone_slope_int[c] << hdr->coefficient_log2_denom) |
+                             src->linear_deadzone_slope[c];
+            const double T = (src->linear_deadzone_threshold_int[c] << hdr->coefficient_log2_denom) |
+                             src->linear_deadzone_threshold[c];
             dst->offset = el_scale * src->nlq_offset[c];
-            dst->deadzone_slope = slope_scale_d * S;
-            dst->deadzone_threshold = coef_scale_d * (T - 0.5 * S);
+            dst->deadzone_slope = slope_scale * S;
+            dst->deadzone_threshold = coef_scale * (T - 0.5 * S);
+#else
+            dst->offset = src->nlq_offset[c];
+
+            int64_t ipart = src->vdr_in_max_int[c];
+            uint64_t fpart = src->vdr_in_max[c];
+            dst->hdr_in_max = ipart + coef_scale * fpart;
+
+            ipart = src->linear_deadzone_slope_int[c];
+            fpart = src->linear_deadzone_slope[c];
+            dst->deadzone_slope = ipart + coef_scale * fpart;
+            
+            ipart = src->linear_deadzone_threshold_int[c];
+            fpart = src->linear_deadzone_threshold[c];
+            dst->deadzone_threshold = ipart + coef_scale * fpart;
+#endif
         }
     }
-#endif
+#endif // PL_API_VER >= 369
 
     dovi_rpu_free_data_mapping(mapping);
 skip_mapping:
