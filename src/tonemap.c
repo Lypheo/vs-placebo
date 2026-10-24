@@ -186,7 +186,7 @@ bool vspl_tonemap_prepare_src_frame(TMData *tm_data, VSCore *core, const VSAPI *
                 .pixels = vsapi->getReadPtr((VSFrame *) el_frame, i),
             };
 
-            el_plane_data[i].component_size[0] = 16;
+            el_plane_data[i].component_size[0] = el_fmt->bytesPerSample * 8;
             el_plane_data[i].component_pad[0] = 0;
             el_plane_data[i].component_map[0] = i;
         }
@@ -353,7 +353,7 @@ void vspl_tonemap_map_repr(TMData *tm_data, const VSAPI *vsapi, const VSFrame *f
 bool vspl_tonemap_map_bl_frame(TMData *tm_data, VSFrameContext *frameCtx, VSCore *core,
                                const VSAPI *vsapi, const VSFrame *frame, const VSMap *el_props,
                                struct pl_color_repr *src_repr, struct pl_color_repr *dst_repr,
-                               struct pl_color_space *src_pl_csp)
+                               struct pl_color_repr *el_repr, struct pl_color_space *src_pl_csp)
 {
     int err;
 
@@ -405,6 +405,18 @@ bool vspl_tonemap_map_bl_frame(TMData *tm_data, VSFrameContext *frameCtx, VSCore
         }
 
         if (header) {
+           if (tm_data->src_csp == CSP_DOVI) {
+               const int bl_bit_depth = header->bl_bit_depth_minus8 + 8;
+               src_repr->bits.color_depth = bl_bit_depth;
+               src_repr->bits.bit_shift = tm_data->vi->format.bitsPerSample - bl_bit_depth;
+
+               if (el_props && tm_data->el_vi) {
+                   const int el_bit_depth = header->el_bit_depth_minus8 + 8;
+                   el_repr->bits.color_depth = el_bit_depth;
+                   el_repr->bits.bit_shift = tm_data->el_vi->format.bitsPerSample - el_bit_depth;
+               }
+           }
+
             if (header->vdr_dm_metadata_present_flag) {
                 const DoviVdrDmData *vdr_dm_data = dovi_rpu_get_vdr_dm_data(rpu);
 
@@ -494,24 +506,41 @@ static const VSFrame *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, voi
         el_props = vsapi->getFramePropertiesRO(el_frame);
     }
 
+    const VSVideoFormat *src_fmt = &tm_data->vi->format;
+    const VSVideoFormat *dst_fmt = &tm_data->vi_out.format;
+
     struct pl_color_repr src_repr = {
-        .bits = {.sample_depth = 16, .color_depth = 16, .bit_shift = 0}};
+        .bits = {
+            .sample_depth = src_fmt->bytesPerSample * 8,
+            .color_depth = src_fmt->bitsPerSample,
+        }
+    };
     struct pl_color_repr dst_repr = {
-        .bits = {.sample_depth = 16, .color_depth = 16, .bit_shift = 0},
+        .bits = {
+            .sample_depth = dst_fmt->bytesPerSample * 8,
+            .color_depth = dst_fmt->bitsPerSample,
+        },
         .levels = PL_COLOR_LEVELS_FULL,
         .alpha = PL_ALPHA_PREMULTIPLIED,
     };
+    struct pl_color_repr el_repr = {
+        .sys = PL_COLOR_SYSTEM_BT_2020_NC,
+        .levels = PL_COLOR_LEVELS_LIMITED,
+    };
+    if (tm_data->el_vi) {
+        el_repr.bits.sample_depth = tm_data->el_vi->format.bytesPerSample * 8;
+        el_repr.bits.color_depth = tm_data->el_vi->format.bitsPerSample;
+    }
 
     // copy so that dynamic metadata doesn't impact other threads
     struct pl_color_space *src_pl_csp = malloc(sizeof(struct pl_color_space));
     memcpy(src_pl_csp, tm_data->src_pl_csp, sizeof(struct pl_color_space));
 
     ok = vspl_tonemap_map_bl_frame(tm_data, frameCtx, core, vsapi, frame, el_props, &src_repr,
-                                   &dst_repr, src_pl_csp);
+                                   &dst_repr, &el_repr, src_pl_csp);
     if (!ok)
         goto done;
 
-    const VSVideoFormat *dst_fmt = &tm_data->vi_out.format;
     struct pl_plane_data plane_data[3] = {};
 
     for (int i = 0; i < 3; ++i) {
@@ -519,12 +548,12 @@ static const VSFrame *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, voi
             .type = PL_FMT_UNORM,
             .width = vsapi->getFrameWidth(frame, i),
             .height = vsapi->getFrameHeight(frame, i),
-            .pixel_stride = dst_fmt->bytesPerSample,
+            .pixel_stride = src_fmt->bytesPerSample,
             .row_stride = vsapi->getStride(frame, i),
             .pixels = vsapi->getReadPtr((VSFrame *) frame, i),
         };
 
-        plane_data[i].component_size[0] = 16;
+        plane_data[i].component_size[0] = src_fmt->bytesPerSample * 8;
         plane_data[i].component_pad[0] = 0;
         plane_data[i].component_map[0] = i;
     }
@@ -544,11 +573,7 @@ static const VSFrame *VS_CC VSPlaceboTMGetFrame(int n, int activationReason, voi
         };
         struct pl_frame el_pl_frame = {
             .num_planes = 3,
-            .repr = {
-                .sys = PL_COLOR_SYSTEM_BT_2020_NC,
-                .levels = PL_COLOR_LEVELS_LIMITED,
-                .bits = {.sample_depth = 16, .color_depth = 16, .bit_shift = 0}
-            },
+            .repr = el_repr,
             .color = pl_color_space_hdr10,
         };
 
