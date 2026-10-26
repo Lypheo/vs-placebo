@@ -8,5 +8,4 @@ brew update
 #   - https://github.com/asimov-platform/actions/pull/3
 if brew list openssl@1.1 &> /dev/null; then brew rm openssl@1.1; fi
 
-brew install shaderc glslang dovi_tool
-brew install libplacebo --HEAD
+brew install shaderc glslang dovi_tool libplacebo

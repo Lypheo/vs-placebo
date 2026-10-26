@@ -48,7 +48,7 @@ before-all = ["./cibw/before_all_linux.sh"]
 [tool.cibuildwheel.linux.environment]
 VULKAN_SDK_VERSION="1.4.341.0"
 SHADERC_VERSION="2026.1"
-LIBPLACEBO_TAG="master"
+LIBPLACEBO_TAG="v7.387.0"
 LIBDOVI_TAG="libdovi-3.3.2"
 VULKAN_SDK_TAG="vulkan-sdk-${VULKAN_SDK_VERSION}"
 SHADERC_TAG="v${SHADERC_VERSION}"
