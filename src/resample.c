@@ -489,7 +489,6 @@ void VS_CC VSPlaceboResampleCreate(const VSMap *in, VSMap *out, void *useResampl
     d.lut = NULL;
     sampleFilterParams->no_widening = false;
     sampleFilterParams->no_compute = false;
-    sampleFilterParams->antiring = vsapi->mapGetFloat(in, "antiring", 0, &err);
 
     const char *filter = vsapi->mapGetData(in, "filter", 0, &err);
     if (err) {
@@ -498,24 +497,37 @@ void VS_CC VSPlaceboResampleCreate(const VSMap *in, VSMap *out, void *useResampl
     }
 
     const struct pl_filter_config *filter_config = pl_find_filter_config(filter, PL_FILTER_SCALING);
-    if (filter_config) {
-        sampleFilterParams->filter = *filter_config;
-    } else {
+    if (!filter_config) {
+        filter_config = pl_find_filter_config("ewa_lanczos", PL_FILTER_SCALING);
         vsapi->logMessage(mtWarning, "Unknown filter... selecting ewa_lanczos.\n", core);
-        sampleFilterParams->filter = pl_filter_ewa_lanczos;
     }
 
+    sampleFilterParams->filter = *filter_config;
+
+    // filter config overrides
+    sampleFilterParams->filter.antiring = vsapi->mapGetFloat(in, "antiring", 0, &err);
+    if (err)
+        sampleFilterParams->filter.antiring = filter_config->antiring;
+
     sampleFilterParams->filter.clamp = vsapi->mapGetFloat(in, "clamp", 0, &err);
+    if (err)
+        sampleFilterParams->filter.clamp = filter_config->clamp;
+
     sampleFilterParams->filter.blur = vsapi->mapGetFloat(in, "blur", 0, &err);
+    if (err)
+        sampleFilterParams->filter.blur = filter_config->blur;
+
     sampleFilterParams->filter.taper = vsapi->mapGetFloat(in, "taper", 0, &err);
+    if (err)
+        sampleFilterParams->filter.taper = filter_config->taper;
 
     struct pl_filter_function *f = calloc(1, sizeof(struct pl_filter_function));
 
     *f = *sampleFilterParams->filter.kernel;
     if (f->resizable) {
-        vsapi->mapGetFloat(in, "radius", 0, &err);
-        if (!err)
-            f->radius = vsapi->mapGetFloat(in, "radius", 0, &err);
+        sampleFilterParams->filter.radius = vsapi->mapGetFloat(in, "radius", 0, &err);
+        if (err)
+            sampleFilterParams->filter.radius = filter_config->radius;
     }
 
     vsapi->mapGetFloat(in, "param1", 0, &err);
